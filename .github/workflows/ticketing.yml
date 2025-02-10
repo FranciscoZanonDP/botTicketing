@@ -1,4 +1,4 @@
-name: Run Ticketing Report
+name: Run Ticketing Report Dayly/manual
 on:
   schedule:
     - cron: "0 17 * * *"
