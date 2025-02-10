@@ -20,8 +20,8 @@ jobs:
 
       - name: Create credentials files
         run: |
-          cat TKT/client_secret.json > client_secret.json
-          cat TKT/sheets.googleapis.com-python.json > sheets.googleapis.com-python.json
+          cat client_secret.json > client_secret.json
+          cat sheets.googleapis.com-python.json > sheets.googleapis.com-python.json
 
       - name: Run script
         run: python ticketingResumen.py
