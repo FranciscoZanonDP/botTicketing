@@ -1,7 +1,7 @@
 name: Run Ticketing Report Dayly/manual
 on:
   schedule:
-    - cron: "0 17 * * *"
+    - cron: "0 17 * * *" # Correcto
   workflow_dispatch:
 
 jobs:
