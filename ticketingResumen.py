@@ -389,6 +389,71 @@ def get_existing_show_details(connection, artista, fecha_show, funcion):
         print(f"Error en la consulta: {e}")
         return False
 
+def get_show_details_from_shows_ticketing(connection, artista, fecha_show, funcion):
+    try:
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT 
+                capacidad, 
+                holdeo, 
+                venue, 
+                pais, 
+                dias_venta, 
+                funcion,
+                CONCAT(
+                    artista, 
+                    ' - ', 
+                    venue,
+                    CASE 
+                        WHEN funcion IS NOT NULL AND funcion != '' 
+                        THEN CONCAT(' F', funcion) 
+                        ELSE '' 
+                    END,
+                    ' - ',
+                    fecha
+                ) as show
+            FROM shows_ticketing 
+            WHERE artista = %s 
+            AND fecha = %s 
+            AND COALESCE(funcion, '') = %s
+            LIMIT 1
+        """, (artista, fecha_show, funcion if funcion else ''))
+        result = cursor.fetchone()
+        cursor.close()
+        
+        if result:
+            capacidad, holdeo, venue, pais, dias_venta, funcion, show = result
+            return {
+                'capacidad': str(capacidad) if capacidad else '-',
+                'holdeo': str(holdeo) if holdeo else '-',
+                'venue': venue if venue else '-',
+                'pais': pais if pais else '-',
+                'dias_restantes': str(dias_venta) if dias_venta else '-',  # Usamos dias_venta como dias_restantes
+                'funcion': funcion if funcion else '',
+                'show': show if show else ''
+            }
+        return None
+    except Error as e:
+        print(f"Error en la consulta de shows_ticketing: {e}")
+        return None
+
+def delete_from_shows_ticketing(connection, artista, fecha_show, funcion):
+    try:
+        cursor = connection.cursor()
+        cursor.execute("""
+            DELETE FROM shows_ticketing 
+            WHERE artista = %s 
+            AND fecha = %s 
+            AND COALESCE(funcion, '') = %s
+        """, (artista, fecha_show, funcion if funcion else ''))
+        connection.commit()
+        cursor.close()
+        return True
+    except Error as e:
+        print(f"Error al eliminar de shows_ticketing: {e}")
+        connection.rollback()
+        return False
+
 def authorize_and_get_data():
     SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=1650683826#gid=1650683826'
     gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
@@ -616,6 +681,29 @@ def authorize_and_get_data():
                     'funcion': "",
                     'show': detalles_previos['show']
                 })
+            else:
+                # Buscar en shows_ticketing
+                detalles_show = get_show_details_from_shows_ticketing(conn, artista, fecha_show, "")
+                if detalles_show:
+                    registros_ok += 1
+                    print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
+                          f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
+                    
+                    registros_a_insertar.append({
+                        'fecha_venta': fecha_venta,
+                        'fecha_show': fecha_show,
+                        'artista': artista,
+                        'ciudad': ciudad,
+                        'venta_diaria': venta_diaria,
+                        'venta_total': venta_total,
+                        'capacidad': detalles_show['capacidad'],
+                        'holdeo': detalles_show['holdeo'],
+                        'venue': detalles_show['venue'],
+                        'pais': detalles_show['pais'],
+                        'dias_restantes': detalles_show['dias_restantes'],
+                        'funcion': detalles_show['funcion'],
+                        'show': detalles_show['show']
+                    })
         
         print("-" * 140)
         print(f"\nTotal de registros OK: {registros_ok}")
@@ -660,12 +748,30 @@ def authorize_and_get_data():
             print("-" * 140)
             print(f"\nTotal de registros a insertar: {len(registros_a_insertar)}")
 
-            # Insertar registros y preparar listas para el reporte
+            # Crear un set para trackear shows ya insertados
+            shows_procesados = set()
             registros_insertados = []
             registros_no_insertados = []
             
             print("\nInsertando registros en la base de datos...")
+            duplicados = []  # Lista para trackear registros duplicados
             for registro in registros_a_insertar:
+                # Crear una clave única para cada show
+                show_key = (registro['artista'], registro['fecha_show'], registro['funcion'])
+                
+                # Si ya procesamos este show, lo agregamos a la lista de duplicados
+                if show_key in shows_procesados:
+                    duplicados.append({
+                        'artista': registro['artista'],
+                        'fecha_show': registro['fecha_show'],
+                        'funcion': registro['funcion']
+                    })
+                    continue
+                
+                # Marcar el show como procesado
+                shows_procesados.add(show_key)
+                
+                print(f"Intentando insertar: {registro['artista']} - {registro['fecha_show']}")
                 if insert_ticket(conn, registro):
                     registros_insertados.append({
                         'artista': registro['artista'],
@@ -673,7 +779,20 @@ def authorize_and_get_data():
                         'fecha_show': registro['fecha_show'],
                         'fecha_venta': registro['fecha_venta']
                     })
+                    
+                    # Si los datos vinieron de shows_ticketing, eliminar el registro
+                    detalles_show = get_show_details_from_shows_ticketing(conn, 
+                                                                        registro['artista'], 
+                                                                        registro['fecha_show'], 
+                                                                        registro['funcion'])
+                    if detalles_show:
+                        if delete_from_shows_ticketing(conn, 
+                                                     registro['artista'], 
+                                                     registro['fecha_show'], 
+                                                     registro['funcion']):
+                            print(f"Eliminado de shows_ticketing: {registro['artista']} - {registro['fecha_show']}")
                 else:
+                    print(f"❌ Error al insertar: {registro['artista']} - {registro['fecha_show']}")
                     registros_no_insertados.append({
                         'artista': registro['artista'],
                         'ciudad': registro['ciudad'],
@@ -681,8 +800,27 @@ def authorize_and_get_data():
                         'motivo': 'Error en la inserción'
                     })
             
-            print(f"Se insertaron {len(registros_insertados)} registros en la base de datos")
+            print(f"\nResumen final:")
+            print(f"Total de registros a insertar: {len(registros_a_insertar)}")
+            print(f"Registros insertados exitosamente: {len(registros_insertados)}")
+            print(f"Registros no insertados por error: {len(registros_no_insertados)}")
+            print(f"Registros omitidos por ser duplicados: {len(duplicados)}")
             
+            if len(registros_a_insertar) != (len(registros_insertados) + len(registros_no_insertados) + len(duplicados)):
+                print("\n⚠️ Discrepancia en los totales:")
+                print(f"La suma de (insertados + no insertados + duplicados) = {len(registros_insertados) + len(registros_no_insertados) + len(duplicados)}")
+                print(f"No coincide con el total a insertar = {len(registros_a_insertar)}")
+            
+            if duplicados:
+                print("\nRegistros duplicados (omitidos):")
+                for reg in duplicados:
+                    print(f"- {reg['artista']} ({reg['fecha_show']}) {'F'+reg['funcion'] if reg['funcion'] else ''}")
+            
+            if registros_no_insertados:
+                print("\nRegistros que fallaron:")
+                for reg in registros_no_insertados:
+                    print(f"- {reg['artista']} en {reg['ciudad']} ({reg['fecha_show']})")
+
             # Enviar reporte por email
             send_email_report(registros_insertados, registros_no_insertados)
         
