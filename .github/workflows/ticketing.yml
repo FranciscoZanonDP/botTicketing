@@ -1,7 +1,7 @@
 name: Run Ticketing Report Dayly/manual
 on:
   schedule:
-    - cron: "0 17 * * *"
+    - cron: "30 17 * * *"
   workflow_dispatch:
 
 jobs:
@@ -20,8 +20,8 @@ jobs:
 
       - name: Create credentials files
         run: |
-          cat client_secret.json > client_secret.json
-          cat sheets.googleapis.com-python.json > sheets.googleapis.com-python.json
+          echo '${{ secrets.GOOGLE_CLIENT_SECRET }}' > client_secret.json
+          echo '${{ secrets.GOOGLE_SHEETS_TOKEN }}' > sheets.googleapis.com-python.json
 
       - name: Run script
         run: python ticketingResumen.py
