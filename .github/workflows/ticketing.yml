@@ -2,6 +2,7 @@ name: Run Ticketing Report
 on:
   schedule:
     - cron: "0 17 * * *" # Ejecuta a las 17:00 UTC diariamente
+    - workflow_dispatch:
 
 jobs:
   run-script:
