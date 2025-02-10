@@ -1,0 +1,26 @@
+name: Run Ticketing Report
+on:
+  schedule:
+    - cron: "0 17 * * *" # Ejecuta a las 17:00 UTC diariamente
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          pip install pygsheets psycopg2-binary
+
+      - name: Create credentials files
+        run: |
+          echo '${{ secrets.GOOGLE_CLIENT_SECRET }}' > client_secret.json
+          echo '${{ secrets.GOOGLE_SHEETS_TOKEN }}' > sheets.googleapis.com-python.json
+
+      - name: Run script
+        run: python ticketingResumen.py
