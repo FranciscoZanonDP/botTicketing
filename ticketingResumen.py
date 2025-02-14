@@ -534,14 +534,8 @@ def authorize_and_get_data():
         # Diccionario para rastrear las combinaciones que no coinciden
         no_coinciden = {}
         
-        for i, row in enumerate(all_values[3:], start=3):
-            if (len(row) >= 10 and
-                row[0].strip() and  # fecha show
-                row[1].strip() and  # artista
-                row[2].strip() and  # ciudad
-                row[7].strip() and  # venta diaria
-                row[9].strip()):    # venta total
-                
+        for i, row in enumerate(all_values[3:], start=4):
+            if len(row) >= 10 and row[0].strip() and row[1].strip() and row[2].strip():
                 # Procesar fecha
                 original_date = row[0].strip()
                 if '/' in original_date:
@@ -557,23 +551,27 @@ def authorize_and_get_data():
                 else:
                     formatted_date = '2025-01-01'
                 
-                # Procesar venta diaria (columna H - índice 7)
-                venta = row[7].strip()
+                # Procesar venta diaria (columna 8 - índice 7)
+                venta = row[7].strip() if len(row) > 7 else '0'
                 if venta.upper() == 'X':
                     venta = '0'
-                
+                # Quitar punto separador de miles si el número es mayor a 1000
+                if '.' in venta and float(venta.replace('.', '')) >= 1000:
+                    venta = venta.replace('.', '')
+                venta = venta.replace('$', '').replace(',', '.').strip()
                 try:
                     venta_diaria = float(venta)
                 except (ValueError, TypeError):
                     venta_diaria = 0
                 
-                # Procesar venta total (columna J - índice 9)
-                venta_total = row[9].strip()
+                # Procesar venta total (columna 10 - índice 9)
+                venta_total = row[9].strip() if len(row) > 9 else '0'
                 if venta_total.upper() == 'X':
                     venta_total = '0'
-                else:
-                    venta_total = venta_total.replace('.', '').replace(',', '')  # Quitamos separadores de miles
-                
+                # Quitar punto separador de miles si el número es mayor a 1000
+                if '.' in venta_total and float(venta_total.replace('.', '')) >= 1000:
+                    venta_total = venta_total.replace('.', '')
+                venta_total = venta_total.replace('$', '').replace(',', '.').strip()
                 try:
                     venta_total = float(venta_total)
                 except (ValueError, TypeError):
