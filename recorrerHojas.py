@@ -228,92 +228,98 @@ def clean_number(value):
     return str(value)
 
 def recorrer_hojas():
-    # URL fija del sheet
-    sheet_url = "https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=139082797#gid=139082797"
+    # URLs de los sheets
+    sheet_urls = {
+        "Argentina": "https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=139082797#gid=139082797",
+        "España": "https://docs.google.com/spreadsheets/d/10nr7R_rtkUh7DX8uC_dQXkJJSszDd53P-gxnD3Mxi3s/edit?gid=1650683826#gid=1650683826"
+    }
     
     try:
-        # Autorizar y abrir el sheet (fuera del bucle)
-        gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
-        sh = gc.open_by_url(sheet_url)
-        
         # Conectar a la base de datos
         conn = get_db_connection()
         
-        # Listas para almacenar los registros
-        no_existen = []
-        no_coinciden = []
-        actualizados = []
-        
-        # Recorrer todas las hojas excepto 'Resumen'
-        for wks in sh.worksheets():
-            if wks.title != 'Resumen':
-                print(f"\nHoja: {wks.title}")
-                
-                # Obtener valores de las celdas específicas en un solo paso
-                values = wks.get_values('B1', 'F8', value_render='FORMATTED_VALUE')
-                
-                # Extraer los valores individuales de la lista de valores
-                b1_valor = values[0][0] if values else ''
-                b2_valor = values[1][0] if len(values) > 1 else ''
-                d8_valor = clean_number(values[7][2]) if len(values) > 7 and values[7][2].strip() else '0'
-                e8_valor = values[7][3] if len(values) > 7 and values[7][3].strip() else '0'
-                f8_valor = values[7][4] if len(values) > 7 and values[7][4].strip() else '0'
-                
-                # Procesar B1 con las reglas especificadas
-                b1_procesado = process_artist_name(b1_valor)
-                
-                # Formatear B2 a aaaa-mm-dd
-                b2_formatted = format_date(b2_valor)
-                
-                # Verificar existencia y comparar valores
-                existe, capacidad_match, holdeo_match, cortesias_match = check_existence_and_compare(
-                    conn, b1_procesado, b2_formatted, d8_valor, e8_valor, f8_valor)
-                
-                print(f"B1: {b1_procesado}")
-                print(f"B2: {b2_formatted}")
-                print(f"D8: {d8_valor}")
-                print(f"E8: {e8_valor}")
-                print(f"F8: {f8_valor}")
-                print(f"Existe: {existe}")
-                
-                if existe:
-                    print(f"Capacidad coincide: {capacidad_match}")
-                    print(f"Holdeo coincide: {holdeo_match}")
-                    print(f"Cortesias coincide: {cortesias_match}")
-                    if not capacidad_match or not holdeo_match or not cortesias_match:
-                        no_coinciden.append((b1_procesado, b2_formatted, d8_valor, e8_valor, f8_valor))
-                else:
-                    # Si no existe, agregar a la lista
-                    no_existen.append((b1_procesado, b2_formatted))
-        
-        # Imprimir los registros que no existen
-        if no_existen:
-            print("\nRegistros que no existen en la base de datos:")
-            for artist, fecha in no_existen:
-                print(f"Artista: {artist}, Fecha: {fecha}")
-        else:
-            print("\nTodos los registros existen en la base de datos.")
-        
-        # Imprimir los registros que no coinciden
-        if no_coinciden:
-            print("\nRegistros que existen pero no coinciden en capacidad, holdeo o cortesias:")
-            for artist, fecha, d8_valor, e8_valor, f8_valor in no_coinciden:
-                print(f"Artista: {artist}, Fecha: {fecha}, Capacidad: {d8_valor}, Holdeo: {e8_valor}, Cortesias: {f8_valor}")
-        
-        # Actualizar los registros que no coinciden
-        if conn and no_coinciden:
-            for artist, fecha, d8_valor, e8_valor, f8_valor in no_coinciden:
-                if update_tickets(conn, artist, fecha, d8_valor, e8_valor, f8_valor):
-                    actualizados.append({
-                        'artista': artist,
-                        'fecha': fecha,
-                        'capacidad': d8_valor,
-                        'holdeo': e8_valor,
-                        'cortesias': f8_valor
-                    })
-        
-        # Enviar reporte por email
-        send_email_report(actualizados)
+        for country, sheet_url in sheet_urls.items():
+            print(f"\nProcesando el sheet de {country}...")
+            
+            # Autorizar y abrir el sheet
+            gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
+            sh = gc.open_by_url(sheet_url)
+            
+            # Listas para almacenar los registros
+            no_existen = []
+            no_coinciden = []
+            actualizados = []
+            
+            # Recorrer todas las hojas excepto 'Resumen'
+            for wks in sh.worksheets():
+                if wks.title != 'Resumen':
+                    print(f"\nHoja: {wks.title}")
+                    
+                    # Obtener valores de las celdas específicas en un solo paso
+                    values = wks.get_values('B1', 'F8', value_render='FORMATTED_VALUE')
+                    
+                    # Extraer los valores individuales de la lista de valores
+                    b1_valor = values[0][0] if values else ''
+                    b2_valor = values[1][0] if len(values) > 1 else ''
+                    d8_valor = clean_number(values[7][2]) if len(values) > 7 and values[7][2].strip() else '0'
+                    e8_valor = values[7][3] if len(values) > 7 and values[7][3].strip() else '0'
+                    f8_valor = values[7][4] if len(values) > 7 and values[7][4].strip() else '0'
+                    
+                    # Procesar B1 con las reglas especificadas
+                    b1_procesado = process_artist_name(b1_valor)
+                    
+                    # Formatear B2 a aaaa-mm-dd
+                    b2_formatted = format_date(b2_valor)
+                    
+                    # Verificar existencia y comparar valores
+                    existe, capacidad_match, holdeo_match, cortesias_match = check_existence_and_compare(
+                        conn, b1_procesado, b2_formatted, d8_valor, e8_valor, f8_valor)
+                    
+                    print(f"B1: {b1_procesado}")
+                    print(f"B2: {b2_formatted}")
+                    print(f"D8: {d8_valor}")
+                    print(f"E8: {e8_valor}")
+                    print(f"F8: {f8_valor}")
+                    print(f"Existe: {existe}")
+                    
+                    if existe:
+                        print(f"Capacidad coincide: {capacidad_match}")
+                        print(f"Holdeo coincide: {holdeo_match}")
+                        print(f"Cortesias coincide: {cortesias_match}")
+                        if not capacidad_match or not holdeo_match or not cortesias_match:
+                            no_coinciden.append((b1_procesado, b2_formatted, d8_valor, e8_valor, f8_valor))
+                    else:
+                        # Si no existe, agregar a la lista
+                        no_existen.append((b1_procesado, b2_formatted))
+            
+            # Imprimir los registros que no existen
+            if no_existen:
+                print("\nRegistros que no existen en la base de datos:")
+                for artist, fecha in no_existen:
+                    print(f"Artista: {artist}, Fecha: {fecha}")
+            else:
+                print("\nTodos los registros existen en la base de datos.")
+            
+            # Imprimir los registros que no coinciden
+            if no_coinciden:
+                print("\nRegistros que existen pero no coinciden en capacidad, holdeo o cortesias:")
+                for artist, fecha, d8_valor, e8_valor, f8_valor in no_coinciden:
+                    print(f"Artista: {artist}, Fecha: {fecha}, Capacidad: {d8_valor}, Holdeo: {e8_valor}, Cortesias: {f8_valor}")
+            
+            # Actualizar los registros que no coinciden
+            if conn and no_coinciden:
+                for artist, fecha, d8_valor, e8_valor, f8_valor in no_coinciden:
+                    if update_tickets(conn, artist, fecha, d8_valor, e8_valor, f8_valor):
+                        actualizados.append({
+                            'artista': artist,
+                            'fecha': fecha,
+                            'capacidad': d8_valor,
+                            'holdeo': e8_valor,
+                            'cortesias': f8_valor
+                        })
+            
+            # Enviar reporte por email
+            send_email_report(actualizados)
         
         # Cerrar la conexión a la base de datos AL FINAL
         if conn:
