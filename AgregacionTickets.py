@@ -19,8 +19,29 @@ def get_db_connection():
         return None
 
 def get_sheet_data():
-    # URL fija del sheet
-    sheet_url = "https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=139082797#gid=139082797"
+    # URLs de los sheets
+    sheet_urls = {
+        "Argentina": "https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=139082797#gid=139082797",
+        "España": "https://docs.google.com/spreadsheets/d/10nr7R_rtkUh7DX8uC_dQXkJJSszDd53P-gxnD3Mxi3s/edit?gid=1650683826#gid=1650683826"
+    }
+    
+    # Preguntar al usuario cuál sheet desea procesar
+    print("\nSeleccione el sheet que desea procesar:")
+    for idx, country in enumerate(sheet_urls.keys(), 1):
+        print(f"{idx}. {country}")
+    
+    while True:
+        try:
+            choice = int(input("\nIngrese el número correspondiente al sheet: "))
+            if 1 <= choice <= len(sheet_urls):
+                selected_country = list(sheet_urls.keys())[choice - 1]
+                sheet_url = sheet_urls[selected_country]
+                print(f"\nProcesando el sheet de {selected_country}...")
+                break
+            else:
+                print(f"Error: Por favor ingrese un número entre 1 y {len(sheet_urls)}")
+        except ValueError:
+            print("Error: Por favor ingrese un número válido")
     
     try:
         # Autorizar y abrir el sheet

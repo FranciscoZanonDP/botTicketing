@@ -455,159 +455,230 @@ def delete_from_shows_ticketing(connection, artista, fecha_show, funcion):
         return False
 
 def authorize_and_get_data():
-    SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=1650683826#gid=1650683826'
-    gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
-    sh = gc.open_by_url(SPREADSHEET_URL)
-    wks = sh.worksheet_by_title('Resumen')
-    
-    all_values = wks.get_all_values(include_tailing_empty=False)
-    
-    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    
-    # Obtener y formatear fecha de venta de C1
-    fecha_venta = wks.get_value('C1').strip()
-    if '/' in fecha_venta:
-        date_parts = fecha_venta.split('/')
-        if len(date_parts) == 3:
-            dia = date_parts[0]
-            mes = date_parts[1]
-            anio = date_parts[2]
-            if len(anio) == 2:
-                anio = '20' + anio
-            fecha_venta = f"{anio}-{mes.zfill(2)}-{dia.zfill(2)}"
-        elif len(date_parts) == 2:
-            dia = date_parts[0]
-            mes = date_parts[1]
-            fecha_venta = f"2025-{mes.zfill(2)}-{dia.zfill(2)}"
-    
-    print("\nResumen de ventas:")
-    print("-" * 140)
-    print(f"{'Artista':<25} {'Ciudad':<15} {'Fecha Show':<12} {'Fecha Venta':<12} {'Venta Diaria':<15} {'Venta Total':<15} {'F':<5} {'Estado':<15}")
-    print("-" * 140)
-    
-    # Diccionario para rastrear las combinaciones de Artista-Fecha Show-Ciudad
-    combinaciones = {}
-    
-    # Primer paso: recolectar todas las combinaciones válidas
-    for i, row in enumerate(all_values[3:], start=3):
-        if (len(row) >= 10 and
-            row[0].strip() and  # fecha show
-            row[1].strip() and  # artista
-            row[2].strip() and  # ciudad
-            row[7].strip() and  # venta diaria
-            row[9].strip()):    # venta total
-            
-            artista = process_artist_name(row[1].strip())
-            ciudad = row[2].strip()
-            
-            # Procesar fecha show
-            original_date = row[0].strip()
-            if '/' in original_date:
-                date_parts = original_date.split('/')
-                if len(date_parts) == 3:
-                    if len(date_parts[2]) == 2:
-                        date_parts[2] = '2025'
-                    formatted_date = f"{date_parts[2]}-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
-                elif len(date_parts) == 2:
-                    formatted_date = f"2025-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
-                else:
-                    formatted_date = '2025-01-01'
-            else:
-                formatted_date = '2025-01-01'
-            
-            # Guardar la combinación incluyendo ciudad
-            key = (artista, formatted_date, ciudad)  # Clave compuesta con los tres valores
-            if key in combinaciones:
-                combinaciones[key] += 1
-            else:
-                combinaciones[key] = 1
-    
-    # Diccionario para rastrear el contador actual de cada combinación
-    contadores_actuales = {}
+    # URLs de los sheets
+    sheet_urls = {
+        "Argentina": "https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=1650683826#gid=1650683826",
+        "España": "https://docs.google.com/spreadsheets/d/10nr7R_rtkUh7DX8uC_dQXkJJSszDd53P-gxnD3Mxi3s/edit?gid=1650683826#gid=1650683826"
+    }
     
     try:
         conn = get_db_connection()
-        registros_ok = 0
-        registros_insertados = 0
-        registros_a_insertar = []  # Lista para almacenar los registros a insertar
         
-        # Diccionario para rastrear las combinaciones que no coinciden
-        no_coinciden = {}
-        
-        for i, row in enumerate(all_values[3:], start=4):
-            if len(row) >= 10 and row[0].strip() and row[1].strip() and row[2].strip():
-                # Procesar fecha
-                original_date = row[0].strip()
-                if '/' in original_date:
-                    date_parts = original_date.split('/')
-                    if len(date_parts) == 3:
-                        if len(date_parts[2]) == 2:
-                            date_parts[2] = '2025'
-                        formatted_date = f"{date_parts[2]}-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
-                    elif len(date_parts) == 2:
-                        formatted_date = f"2025-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
+        for country, sheet_url in sheet_urls.items():
+            print(f"\nProcesando el sheet de {country}...")
+            
+            # Autorizar y abrir el sheet
+            gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
+            sh = gc.open_by_url(sheet_url)
+            wks = sh.worksheet_by_title('Resumen')
+            
+            all_values = wks.get_all_values(include_tailing_empty=False)
+            
+            yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+            
+            # Obtener y formatear fecha de venta de C1
+            fecha_venta = wks.get_value('C1').strip()
+            if '/' in fecha_venta:
+                date_parts = fecha_venta.split('/')
+                if len(date_parts) == 3:
+                    dia = date_parts[0]
+                    mes = date_parts[1]
+                    anio = date_parts[2]
+                    if len(anio) == 2:
+                        anio = '20' + anio
+                    fecha_venta = f"{anio}-{mes.zfill(2)}-{dia.zfill(2)}"
+                elif len(date_parts) == 2:
+                    dia = date_parts[0]
+                    mes = date_parts[1]
+                    fecha_venta = f"2025-{mes.zfill(2)}-{dia.zfill(2)}"
+            
+            print("\nResumen de ventas:")
+            print("-" * 140)
+            print(f"{'Artista':<25} {'Ciudad':<15} {'Fecha Show':<12} {'Fecha Venta':<12} {'Venta Diaria':<15} {'Venta Total':<15} {'F':<5} {'Estado':<15}")
+            print("-" * 140)
+            
+            # Diccionario para rastrear las combinaciones de Artista-Fecha Show-Ciudad
+            combinaciones = {}
+            
+            # Primer paso: recolectar todas las combinaciones válidas
+            for i, row in enumerate(all_values[3:], start=3):
+                if (len(row) >= 10 and
+                    row[0].strip() and  # fecha show
+                    row[1].strip() and  # artista
+                    row[2].strip() and  # ciudad
+                    row[7].strip() and  # venta diaria
+                    row[9].strip()):    # venta total
+                    
+                    artista = process_artist_name(row[1].strip())
+                    ciudad = row[2].strip()
+                    
+                    # Procesar fecha show
+                    original_date = row[0].strip()
+                    if '/' in original_date:
+                        date_parts = original_date.split('/')
+                        if len(date_parts) == 3:
+                            if len(date_parts[2]) == 2:
+                                date_parts[2] = '2025'
+                            formatted_date = f"{date_parts[2]}-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
+                        elif len(date_parts) == 2:
+                            formatted_date = f"2025-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
+                        else:
+                            formatted_date = '2025-01-01'
                     else:
                         formatted_date = '2025-01-01'
-                else:
-                    formatted_date = '2025-01-01'
-                
-                # Procesar venta diaria (columna 8 - índice 7)
-                venta = row[7].strip() if len(row) > 7 else '0'
-                if venta.upper() == 'X':
-                    venta = '0'
-                # Quitar punto separador de miles si el número es mayor a 1000
-                if '.' in venta and float(venta.replace('.', '')) >= 1000:
-                    venta = venta.replace('.', '')
-                venta = venta.replace('$', '').replace(',', '.').strip()
-                try:
-                    venta_diaria = float(venta)
-                except (ValueError, TypeError):
-                    venta_diaria = 0
-                
-                # Procesar venta total (columna 10 - índice 9)
-                venta_total = row[9].strip() if len(row) > 9 else '0'
-                if venta_total.upper() == 'X':
-                    venta_total = '0'
-                # Quitar punto separador de miles si el número es mayor a 1000
-                if '.' in venta_total and float(venta_total.replace('.', '')) >= 1000:
-                    venta_total = venta_total.replace('.', '')
-                venta_total = venta_total.replace('$', '').replace(',', '.').strip()
-                try:
-                    venta_total = float(venta_total)
-                except (ValueError, TypeError):
-                    venta_total = 0
-                
-                artista_procesado = process_artist_name(row[1].strip())
-                ciudad = row[2].strip()
-                
-                # Determinar F usando la combinación de los tres valores
-                key = (artista_procesado, formatted_date, ciudad)
-                if combinaciones[key] > 1:
-                    if key not in contadores_actuales:
-                        contadores_actuales[key] = 1
-                        funcion = "1"
+                    
+                    # Guardar la combinación incluyendo ciudad
+                    key = (artista, formatted_date, ciudad)  # Clave compuesta con los tres valores
+                    if key in combinaciones:
+                        combinaciones[key] += 1
                     else:
-                        contadores_actuales[key] += 1
-                        funcion = str(contadores_actuales[key])
-                else:
-                    funcion = ""
+                        combinaciones[key] = 1
+            
+            # Diccionario para rastrear el contador actual de cada combinación
+            contadores_actuales = {}
+            
+            try:
+                registros_ok = 0
+                registros_insertados = 0
+                registros_a_insertar = []  # Lista para almacenar los registros a insertar
                 
-                # Verificar si existe en la base de datos
-                estado = "OK"
-                if conn:
-                    existe = get_existing_show_details(conn, artista_procesado, formatted_date, funcion)
-                    if existe == 'NULL':
-                        funcion = ""
+                # Diccionario para rastrear las combinaciones que no coinciden
+                no_coinciden = {}
+                
+                for i, row in enumerate(all_values[3:], start=4):
+                    if len(row) >= 10 and row[0].strip() and row[1].strip() and row[2].strip():
+                        # Procesar fecha
+                        original_date = row[0].strip()
+                        if '/' in original_date:
+                            date_parts = original_date.split('/')
+                            if len(date_parts) == 3:
+                                if len(date_parts[2]) == 2:
+                                    date_parts[2] = '2025'
+                                formatted_date = f"{date_parts[2]}-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
+                            elif len(date_parts) == 2:
+                                formatted_date = f"2025-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
+                            else:
+                                formatted_date = '2025-01-01'
+                        else:
+                            formatted_date = '2025-01-01'
+                        
+                        # Procesar venta diaria (columna 8 - índice 7)
+                        venta = row[7].strip() if len(row) > 7 else '0'
+                        if venta.upper() == 'X':
+                            venta = '0'
+                        # Quitar punto separador de miles si el número es mayor a 1000
+                        if '.' in venta and float(venta.replace('.', '')) >= 1000:
+                            venta = venta.replace('.', '')
+                        venta = venta.replace('$', '').replace(',', '.').strip()
+                        try:
+                            venta_diaria = float(venta)
+                        except (ValueError, TypeError):
+                            venta_diaria = 0
+                        
+                        # Procesar venta total (columna 10 - índice 9)
+                        venta_total = row[9].strip() if len(row) > 9 else '0'
+                        if venta_total.upper() == 'X':
+                            venta_total = '0'
+                        # Quitar punto separador de miles si el número es mayor a 1000
+                        if '.' in venta_total and float(venta_total.replace('.', '')) >= 1000:
+                            venta_total = venta_total.replace('.', '')
+                        venta_total = venta_total.replace('$', '').replace(',', '.').strip()
+                        try:
+                            venta_total = float(venta_total)
+                        except (ValueError, TypeError):
+                            venta_total = 0
+                        
+                        artista_procesado = process_artist_name(row[1].strip())
+                        ciudad = row[2].strip()
+                        
+                        # Determinar F usando la combinación de los tres valores
+                        key = (artista_procesado, formatted_date, ciudad)
+                        if combinaciones[key] > 1:
+                            if key not in contadores_actuales:
+                                contadores_actuales[key] = 1
+                                funcion = "1"
+                            else:
+                                contadores_actuales[key] += 1
+                                funcion = str(contadores_actuales[key])
+                        else:
+                            funcion = ""
+                        
+                        # Verificar si existe en la base de datos
                         estado = "OK"
+                        if conn:
+                            existe = get_existing_show_details(conn, artista_procesado, formatted_date, funcion)
+                            if existe == 'NULL':
+                                funcion = ""
+                                estado = "OK"
+                                registros_ok += 1
+                                # Obtener detalles del registro anterior
+                                detalles_previos = get_last_record_details(conn, artista_procesado, formatted_date, funcion)
+                                
+                                # Guardar para inserción
+                                registros_a_insertar.append({
+                                    'fecha_venta': fecha_venta,
+                                    'fecha_show': formatted_date,
+                                    'artista': artista_procesado,
+                                    'ciudad': ciudad,
+                                    'venta_diaria': venta_diaria,
+                                    'venta_total': venta_total,
+                                    'capacidad': detalles_previos['capacidad'],
+                                    'holdeo': detalles_previos['holdeo'],
+                                    'venue': detalles_previos['venue'],
+                                    'pais': detalles_previos['pais'],
+                                    'dias_restantes': detalles_previos['dias_restantes'],
+                                    'funcion': funcion,
+                                    'show': detalles_previos['show']
+                                })
+                                print(f"{artista_procesado:<25} {ciudad:<15} {formatted_date:<12} {fecha_venta:<12} "
+                                      f"{venta_diaria:<15} {venta_total:<15} {funcion:<5} {estado:<15}")
+                            elif not existe:
+                                estado = "NO COINCIDE"
+                                key = (artista_procesado, formatted_date, ciudad, venta_diaria, venta_total)  # Añadimos ventas al key
+                                if key not in no_coinciden:
+                                    no_coinciden[key] = True
+                            else:
+                                registros_ok += 1
+                                # Obtener detalles del registro anterior
+                                detalles_previos = get_last_record_details(conn, artista_procesado, formatted_date, funcion)
+                                
+                                # Guardar para inserción
+                                registros_a_insertar.append({
+                                    'fecha_venta': fecha_venta,
+                                    'fecha_show': formatted_date,
+                                    'artista': artista_procesado,
+                                    'ciudad': ciudad,
+                                    'venta_diaria': venta_diaria,
+                                    'venta_total': venta_total,
+                                    'capacidad': detalles_previos['capacidad'],
+                                    'holdeo': detalles_previos['holdeo'],
+                                    'venue': detalles_previos['venue'],
+                                    'pais': detalles_previos['pais'],
+                                    'dias_restantes': detalles_previos['dias_restantes'],
+                                    'funcion': funcion,
+                                    'show': detalles_previos['show']
+                                })
+                                print(f"{artista_procesado:<25} {ciudad:<15} {formatted_date:<12} {fecha_venta:<12} "
+                                      f"{venta_diaria:<15} {venta_total:<15} {funcion:<5} {estado:<15}")
+                        else:
+                            estado = "SIN CONEXIÓN"
+                
+                # Procesar registros que no coincidieron
+                for key in no_coinciden:
+                    artista, fecha_show, ciudad, venta_diaria, venta_total = key
+                    existe = get_existing_show_details(conn, artista, fecha_show, "")
+                    if existe:
                         registros_ok += 1
-                        # Obtener detalles del registro anterior
-                        detalles_previos = get_last_record_details(conn, artista_procesado, formatted_date, funcion)
+                        # Imprimir en la tabla de resumen
+                        print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
+                              f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
                         
-                        # Guardar para inserción
+                        # Obtener detalles del registro anterior y añadir a registros_a_insertar
+                        detalles_previos = get_last_record_details(conn, artista, fecha_show, "")
                         registros_a_insertar.append({
                             'fecha_venta': fecha_venta,
-                            'fecha_show': formatted_date,
-                            'artista': artista_procesado,
+                            'fecha_show': fecha_show,
+                            'artista': artista,
                             'ciudad': ciudad,
                             'venta_diaria': venta_diaria,
                             'venta_total': venta_total,
@@ -616,212 +687,161 @@ def authorize_and_get_data():
                             'venue': detalles_previos['venue'],
                             'pais': detalles_previos['pais'],
                             'dias_restantes': detalles_previos['dias_restantes'],
-                            'funcion': funcion,
+                            'funcion': "",
                             'show': detalles_previos['show']
                         })
-                        print(f"{artista_procesado:<25} {ciudad:<15} {formatted_date:<12} {fecha_venta:<12} "
-                              f"{venta_diaria:<15} {venta_total:<15} {funcion:<5} {estado:<15}")
-                    elif not existe:
-                        estado = "NO COINCIDE"
-                        key = (artista_procesado, formatted_date, ciudad, venta_diaria, venta_total)  # Añadimos ventas al key
-                        if key not in no_coinciden:
-                            no_coinciden[key] = True
                     else:
-                        registros_ok += 1
-                        # Obtener detalles del registro anterior
-                        detalles_previos = get_last_record_details(conn, artista_procesado, formatted_date, funcion)
+                        # Buscar en shows_ticketing
+                        detalles_show = get_show_details_from_shows_ticketing(conn, artista, fecha_show, "")
+                        if detalles_show:
+                            registros_ok += 1
+                            print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
+                                  f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
+                            
+                            registros_a_insertar.append({
+                                'fecha_venta': fecha_venta,
+                                'fecha_show': fecha_show,
+                                'artista': artista,
+                                'ciudad': ciudad,
+                                'venta_diaria': venta_diaria,
+                                'venta_total': venta_total,
+                                'capacidad': detalles_show['capacidad'],
+                                'holdeo': detalles_show['holdeo'],
+                                'venue': detalles_show['venue'],
+                                'pais': detalles_show['pais'],
+                                'dias_restantes': detalles_show['dias_restantes'],
+                                'funcion': detalles_show['funcion'],
+                                'show': detalles_show['show']
+                            })
+                
+                print("-" * 140)
+                print(f"\nTotal de registros OK: {registros_ok}")
+                
+                # Conectar a la base de datos para la segunda tabla
+                if conn:
+                    print("\nShows sin registro de venta para la fecha", fecha_venta)
+                    print("-" * 80)
+                    print(f"{'Show':<30} {'Artista':<25} {'Fecha Show':<12}")
+                    print("-" * 80)
+                    
+                    shows_sin_venta = get_shows_without_sales(conn, fecha_venta)
+                    for show, artista, fecha_show in shows_sin_venta:
+                        show_name = show if show else '-'
+                        print(f"{show_name:<30} {artista:<25} {fecha_show:<12}")
+                    
+                    print("-" * 80)
+                    print(f"Total shows sin registro: {len(shows_sin_venta)}")
+                    
+                    # Reemplazar la parte de inserción con un preview
+                    print("\nPreview de datos a insertar:")
+                    print("-" * 140)
+                    print(f"{'Fecha Venta':<12} {'Fecha Show':<12} {'Artista':<25} {'Ciudad':<15} {'Venta D.':<10} {'Venta T.':<10} {'Cap.':<8} {'Holdeo':<8} {'Venue':<20} {'País':<10} {'Días':<6} {'Func.':<5}")
+                    print("-" * 140)
+                    
+                    for registro in registros_a_insertar:
+                        print(
+                            f"{registro['fecha_venta']:<12} "
+                            f"{registro['fecha_show']:<12} "
+                            f"{registro['artista'][:24]:<25} "
+                            f"{registro['ciudad'][:14]:<15} "
+                            f"{str(registro['venta_diaria'])[:9]:<10} "
+                            f"{str(registro['venta_total'])[:9]:<10} "
+                            f"{str(registro['capacidad'])[:7]:<8} "
+                            f"{str(registro['holdeo'])[:7]:<8} "
+                            f"{registro['venue'][:19]:<20} "
+                            f"{registro['pais'][:9]:<10} "
+                            f"{str(registro['dias_restantes'])[:5]:<6} "
+                            f"{registro['funcion']:<5}"
+                        )
+                    
+                    print("-" * 140)
+                    print(f"\nTotal de registros a insertar: {len(registros_a_insertar)}")
+
+                    # Crear un set para trackear shows ya insertados
+                    shows_procesados = set()
+                    registros_insertados = []
+                    registros_no_insertados = []
+                    
+                    print("\nInsertando registros en la base de datos...")
+                    duplicados = []  # Lista para trackear registros duplicados
+                    for registro in registros_a_insertar:
+                        # Crear una clave única para cada show
+                        show_key = (registro['artista'], registro['fecha_show'], registro['funcion'])
                         
-                        # Guardar para inserción
-                        registros_a_insertar.append({
-                            'fecha_venta': fecha_venta,
-                            'fecha_show': formatted_date,
-                            'artista': artista_procesado,
-                            'ciudad': ciudad,
-                            'venta_diaria': venta_diaria,
-                            'venta_total': venta_total,
-                            'capacidad': detalles_previos['capacidad'],
-                            'holdeo': detalles_previos['holdeo'],
-                            'venue': detalles_previos['venue'],
-                            'pais': detalles_previos['pais'],
-                            'dias_restantes': detalles_previos['dias_restantes'],
-                            'funcion': funcion,
-                            'show': detalles_previos['show']
-                        })
-                        print(f"{artista_procesado:<25} {ciudad:<15} {formatted_date:<12} {fecha_venta:<12} "
-                              f"{venta_diaria:<15} {venta_total:<15} {funcion:<5} {estado:<15}")
-                else:
-                    estado = "SIN CONEXIÓN"
-        
-        # Procesar registros que no coincidieron
-        for key in no_coinciden:
-            artista, fecha_show, ciudad, venta_diaria, venta_total = key
-            existe = get_existing_show_details(conn, artista, fecha_show, "")
-            if existe:
-                registros_ok += 1
-                # Imprimir en la tabla de resumen
-                print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
-                      f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
-                
-                # Obtener detalles del registro anterior y añadir a registros_a_insertar
-                detalles_previos = get_last_record_details(conn, artista, fecha_show, "")
-                registros_a_insertar.append({
-                    'fecha_venta': fecha_venta,
-                    'fecha_show': fecha_show,
-                    'artista': artista,
-                    'ciudad': ciudad,
-                    'venta_diaria': venta_diaria,
-                    'venta_total': venta_total,
-                    'capacidad': detalles_previos['capacidad'],
-                    'holdeo': detalles_previos['holdeo'],
-                    'venue': detalles_previos['venue'],
-                    'pais': detalles_previos['pais'],
-                    'dias_restantes': detalles_previos['dias_restantes'],
-                    'funcion': "",
-                    'show': detalles_previos['show']
-                })
-            else:
-                # Buscar en shows_ticketing
-                detalles_show = get_show_details_from_shows_ticketing(conn, artista, fecha_show, "")
-                if detalles_show:
-                    registros_ok += 1
-                    print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
-                          f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
+                        # Si ya procesamos este show, lo agregamos a la lista de duplicados
+                        if show_key in shows_procesados:
+                            duplicados.append({
+                                'artista': registro['artista'],
+                                'fecha_show': registro['fecha_show'],
+                                'funcion': registro['funcion']
+                            })
+                            continue
+                        
+                        # Marcar el show como procesado
+                        shows_procesados.add(show_key)
+                        
+                        print(f"Intentando insertar: {registro['artista']} - {registro['fecha_show']}")
+                        if insert_ticket(conn, registro):
+                            registros_insertados.append({
+                                'artista': registro['artista'],
+                                'ciudad': registro['ciudad'],
+                                'fecha_show': registro['fecha_show'],
+                                'fecha_venta': registro['fecha_venta']
+                            })
+                            
+                            # Si los datos vinieron de shows_ticketing, eliminar el registro
+                            detalles_show = get_show_details_from_shows_ticketing(conn, 
+                                                                                registro['artista'], 
+                                                                                registro['fecha_show'], 
+                                                                                registro['funcion'])
+                            if detalles_show:
+                                if delete_from_shows_ticketing(conn, 
+                                                             registro['artista'], 
+                                                             registro['fecha_show'], 
+                                                             registro['funcion']):
+                                    print(f"Eliminado de shows_ticketing: {registro['artista']} - {registro['fecha_show']}")
+                        else:
+                            print(f"❌ Error al insertar: {registro['artista']} - {registro['fecha_show']}")
+                            registros_no_insertados.append({
+                                'artista': registro['artista'],
+                                'ciudad': registro['ciudad'],
+                                'fecha_show': registro['fecha_show'],
+                                'motivo': 'Error en la inserción'
+                            })
                     
-                    registros_a_insertar.append({
-                        'fecha_venta': fecha_venta,
-                        'fecha_show': fecha_show,
-                        'artista': artista,
-                        'ciudad': ciudad,
-                        'venta_diaria': venta_diaria,
-                        'venta_total': venta_total,
-                        'capacidad': detalles_show['capacidad'],
-                        'holdeo': detalles_show['holdeo'],
-                        'venue': detalles_show['venue'],
-                        'pais': detalles_show['pais'],
-                        'dias_restantes': detalles_show['dias_restantes'],
-                        'funcion': detalles_show['funcion'],
-                        'show': detalles_show['show']
-                    })
+                    print(f"\nResumen final:")
+                    print(f"Total de registros a insertar: {len(registros_a_insertar)}")
+                    print(f"Registros insertados exitosamente: {len(registros_insertados)}")
+                    print(f"Registros no insertados por error: {len(registros_no_insertados)}")
+                    print(f"Registros omitidos por ser duplicados: {len(duplicados)}")
+                    
+                    if len(registros_a_insertar) != (len(registros_insertados) + len(registros_no_insertados) + len(duplicados)):
+                        print("\n⚠️ Discrepancia en los totales:")
+                        print(f"La suma de (insertados + no insertados + duplicados) = {len(registros_insertados) + len(registros_no_insertados) + len(duplicados)}")
+                        print(f"No coincide con el total a insertar = {len(registros_a_insertar)}")
+                    
+                    if duplicados:
+                        print("\nRegistros duplicados (omitidos):")
+                        for reg in duplicados:
+                            print(f"- {reg['artista']} ({reg['fecha_show']}) {'F'+reg['funcion'] if reg['funcion'] else ''}")
+                    
+                    if registros_no_insertados:
+                        print("\nRegistros que fallaron:")
+                        for reg in registros_no_insertados:
+                            print(f"- {reg['artista']} en {reg['ciudad']} ({reg['fecha_show']})")
+
+                    # Enviar reporte por email
+                    send_email_report(registros_insertados, registros_no_insertados)
+            
+            except Exception as e:
+                print(f"\nError al procesar el sheet: {e}")
+                if 'conn' in locals():
+                    conn.close()
         
-        print("-" * 140)
-        print(f"\nTotal de registros OK: {registros_ok}")
-        
-        # Conectar a la base de datos para la segunda tabla
+        # Cerrar la conexión a la base de datos
         if conn:
-            print("\nShows sin registro de venta para la fecha", fecha_venta)
-            print("-" * 80)
-            print(f"{'Show':<30} {'Artista':<25} {'Fecha Show':<12}")
-            print("-" * 80)
-            
-            shows_sin_venta = get_shows_without_sales(conn, fecha_venta)
-            for show, artista, fecha_show in shows_sin_venta:
-                show_name = show if show else '-'
-                print(f"{show_name:<30} {artista:<25} {fecha_show:<12}")
-            
-            print("-" * 80)
-            print(f"Total shows sin registro: {len(shows_sin_venta)}")
-            
-            # Reemplazar la parte de inserción con un preview
-            print("\nPreview de datos a insertar:")
-            print("-" * 140)
-            print(f"{'Fecha Venta':<12} {'Fecha Show':<12} {'Artista':<25} {'Ciudad':<15} {'Venta D.':<10} {'Venta T.':<10} {'Cap.':<8} {'Holdeo':<8} {'Venue':<20} {'País':<10} {'Días':<6} {'Func.':<5}")
-            print("-" * 140)
-            
-            for registro in registros_a_insertar:
-                print(
-                    f"{registro['fecha_venta']:<12} "
-                    f"{registro['fecha_show']:<12} "
-                    f"{registro['artista'][:24]:<25} "
-                    f"{registro['ciudad'][:14]:<15} "
-                    f"{str(registro['venta_diaria'])[:9]:<10} "
-                    f"{str(registro['venta_total'])[:9]:<10} "
-                    f"{str(registro['capacidad'])[:7]:<8} "
-                    f"{str(registro['holdeo'])[:7]:<8} "
-                    f"{registro['venue'][:19]:<20} "
-                    f"{registro['pais'][:9]:<10} "
-                    f"{str(registro['dias_restantes'])[:5]:<6} "
-                    f"{registro['funcion']:<5}"
-                )
-            
-            print("-" * 140)
-            print(f"\nTotal de registros a insertar: {len(registros_a_insertar)}")
-
-            # Crear un set para trackear shows ya insertados
-            shows_procesados = set()
-            registros_insertados = []
-            registros_no_insertados = []
-            
-            print("\nInsertando registros en la base de datos...")
-            duplicados = []  # Lista para trackear registros duplicados
-            for registro in registros_a_insertar:
-                # Crear una clave única para cada show
-                show_key = (registro['artista'], registro['fecha_show'], registro['funcion'])
-                
-                # Si ya procesamos este show, lo agregamos a la lista de duplicados
-                if show_key in shows_procesados:
-                    duplicados.append({
-                        'artista': registro['artista'],
-                        'fecha_show': registro['fecha_show'],
-                        'funcion': registro['funcion']
-                    })
-                    continue
-                
-                # Marcar el show como procesado
-                shows_procesados.add(show_key)
-                
-                print(f"Intentando insertar: {registro['artista']} - {registro['fecha_show']}")
-                if insert_ticket(conn, registro):
-                    registros_insertados.append({
-                        'artista': registro['artista'],
-                        'ciudad': registro['ciudad'],
-                        'fecha_show': registro['fecha_show'],
-                        'fecha_venta': registro['fecha_venta']
-                    })
-                    
-                    # Si los datos vinieron de shows_ticketing, eliminar el registro
-                    detalles_show = get_show_details_from_shows_ticketing(conn, 
-                                                                        registro['artista'], 
-                                                                        registro['fecha_show'], 
-                                                                        registro['funcion'])
-                    if detalles_show:
-                        if delete_from_shows_ticketing(conn, 
-                                                     registro['artista'], 
-                                                     registro['fecha_show'], 
-                                                     registro['funcion']):
-                            print(f"Eliminado de shows_ticketing: {registro['artista']} - {registro['fecha_show']}")
-                else:
-                    print(f"❌ Error al insertar: {registro['artista']} - {registro['fecha_show']}")
-                    registros_no_insertados.append({
-                        'artista': registro['artista'],
-                        'ciudad': registro['ciudad'],
-                        'fecha_show': registro['fecha_show'],
-                        'motivo': 'Error en la inserción'
-                    })
-            
-            print(f"\nResumen final:")
-            print(f"Total de registros a insertar: {len(registros_a_insertar)}")
-            print(f"Registros insertados exitosamente: {len(registros_insertados)}")
-            print(f"Registros no insertados por error: {len(registros_no_insertados)}")
-            print(f"Registros omitidos por ser duplicados: {len(duplicados)}")
-            
-            if len(registros_a_insertar) != (len(registros_insertados) + len(registros_no_insertados) + len(duplicados)):
-                print("\n⚠️ Discrepancia en los totales:")
-                print(f"La suma de (insertados + no insertados + duplicados) = {len(registros_insertados) + len(registros_no_insertados) + len(duplicados)}")
-                print(f"No coincide con el total a insertar = {len(registros_a_insertar)}")
-            
-            if duplicados:
-                print("\nRegistros duplicados (omitidos):")
-                for reg in duplicados:
-                    print(f"- {reg['artista']} ({reg['fecha_show']}) {'F'+reg['funcion'] if reg['funcion'] else ''}")
-            
-            if registros_no_insertados:
-                print("\nRegistros que fallaron:")
-                for reg in registros_no_insertados:
-                    print(f"- {reg['artista']} en {reg['ciudad']} ({reg['fecha_show']})")
-
-            # Enviar reporte por email
-            send_email_report(registros_insertados, registros_no_insertados)
-        
+            conn.close()
+    
     except Exception as e:
         print(f"\nError al procesar el sheet: {e}")
         if 'conn' in locals():
