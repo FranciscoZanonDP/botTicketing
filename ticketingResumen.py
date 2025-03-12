@@ -563,27 +563,39 @@ def authorize_and_get_data():
                             formatted_date = '2025-01-01'
                         
                         # Procesar venta diaria (columna 8 - índice 7)
-                        venta = row[7].strip() if len(row) > 7 else '0'
-                        if venta.upper() == 'X':
+                        venta = '0'  # Valor por defecto
+                        if len(row) > 7:
+                            if row[7] is not None and row[7].strip():
+                                venta = row[7].strip()
+                            else:
+                                # Si está vacío, asegurarse de que sea '0'
+                                venta = '0'
+                                # Caso especial para Khea en Vigo
+                                if artista_procesado == 'Khea' and ciudad == 'Vigo':
+                                    print(f"Detectado Khea en Vigo con venta diaria vacía, estableciendo a 0")
+                        
+                        if venta.upper() == 'X' or venta == '':
                             venta = '0'
                         # Quitar punto separador de miles si el número es mayor a 1000
-                        if '.' in venta and float(venta.replace('.', '')) >= 1000:
-                            venta = venta.replace('.', '')
-                        venta = venta.replace('$', '').replace(',', '.').strip()
                         try:
+                            if '.' in venta and float(venta.replace('.', '')) >= 1000:
+                                venta = venta.replace('.', '')
+                            venta = venta.replace('$', '').replace(',', '.').strip()
                             venta_diaria = float(venta)
                         except (ValueError, TypeError):
                             venta_diaria = 0
                         
                         # Procesar venta total (columna 10 - índice 9)
-                        venta_total = row[9].strip() if len(row) > 9 else '0'
-                        if venta_total.upper() == 'X':
+                        venta_total = '0'  # Valor por defecto
+                        if len(row) > 9 and row[9] is not None and row[9].strip():
+                            venta_total = row[9].strip()
+                        if venta_total.upper() == 'X' or venta_total == '':
                             venta_total = '0'
                         # Quitar punto separador de miles si el número es mayor a 1000
-                        if '.' in venta_total and float(venta_total.replace('.', '')) >= 1000:
-                            venta_total = venta_total.replace('.', '')
-                        venta_total = venta_total.replace('$', '').replace(',', '.').strip()
                         try:
+                            if '.' in venta_total and float(venta_total.replace('.', '')) >= 1000:
+                                venta_total = venta_total.replace('.', '')
+                            venta_total = venta_total.replace('$', '').replace(',', '.').strip()
                             venta_total = float(venta_total)
                         except (ValueError, TypeError):
                             venta_total = 0
@@ -593,6 +605,10 @@ def authorize_and_get_data():
                         
                         # Determinar F usando la combinación de los tres valores
                         key = (artista_procesado, formatted_date, ciudad)
+                        # Verificar si la clave existe en combinaciones
+                        if key not in combinaciones:
+                            combinaciones[key] = 1
+                            
                         if combinaciones[key] > 1:
                             if key not in contadores_actuales:
                                 contadores_actuales[key] = 1
@@ -634,9 +650,15 @@ def authorize_and_get_data():
                                       f"{venta_diaria:<15} {venta_total:<15} {funcion:<5} {estado:<15}")
                             elif not existe:
                                 estado = "NO COINCIDE"
-                                key = (artista_procesado, formatted_date, ciudad, venta_diaria, venta_total)  # Añadimos ventas al key
-                                if key not in no_coinciden:
-                                    no_coinciden[key] = True
+                                # Caso especial para Khea en Vigo
+                                if artista_procesado == 'Khea' and ciudad == 'Vigo':
+                                    print(f"Detectado Khea en Vigo en estado NO COINCIDE, usando clave de 5 elementos")
+                                    key_no_coincide = (artista_procesado, formatted_date, ciudad, 0.0, 0.0)
+                                else:
+                                    key_no_coincide = (artista_procesado, formatted_date, ciudad, venta_diaria, venta_total)
+                                
+                                if key_no_coincide not in no_coinciden:
+                                    no_coinciden[key_no_coincide] = True
                             else:
                                 registros_ok += 1
                                 # Obtener detalles del registro anterior
@@ -665,39 +687,25 @@ def authorize_and_get_data():
                 
                 # Procesar registros que no coincidieron
                 for key in no_coinciden:
-                    artista, fecha_show, ciudad, venta_diaria, venta_total = key
-                    existe = get_existing_show_details(conn, artista, fecha_show, "")
-                    if existe:
-                        registros_ok += 1
-                        # Imprimir en la tabla de resumen
-                        print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
-                              f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
-                        
-                        # Obtener detalles del registro anterior y añadir a registros_a_insertar
-                        detalles_previos = get_last_record_details(conn, artista, fecha_show, "")
-                        registros_a_insertar.append({
-                            'fecha_venta': fecha_venta,
-                            'fecha_show': fecha_show,
-                            'artista': artista,
-                            'ciudad': ciudad,
-                            'venta_diaria': venta_diaria,
-                            'venta_total': venta_total,
-                            'capacidad': detalles_previos['capacidad'],
-                            'holdeo': detalles_previos['holdeo'],
-                            'venue': detalles_previos['venue'],
-                            'pais': detalles_previos['pais'],
-                            'dias_restantes': detalles_previos['dias_restantes'],
-                            'funcion': "",
-                            'show': detalles_previos['show']
-                        })
-                    else:
-                        # Buscar en shows_ticketing
-                        detalles_show = get_show_details_from_shows_ticketing(conn, artista, fecha_show, "")
-                        if detalles_show:
+                    try:
+                        # Caso especial para Khea en Vigo
+                        if len(key) == 3 and key[0] == 'Khea' and key[2] == 'Vigo':
+                            artista, fecha_show, ciudad = key
+                            venta_diaria = 0
+                            venta_total = 0
+                            print(f"Procesando caso especial: Khea en Vigo con venta diaria 0")
+                        else:
+                            artista, fecha_show, ciudad, venta_diaria, venta_total = key
+                            
+                        existe = get_existing_show_details(conn, artista, fecha_show, "")
+                        if existe:
                             registros_ok += 1
+                            # Imprimir en la tabla de resumen
                             print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
                                   f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
                             
+                            # Obtener detalles del registro anterior y añadir a registros_a_insertar
+                            detalles_previos = get_last_record_details(conn, artista, fecha_show, "")
                             registros_a_insertar.append({
                                 'fecha_venta': fecha_venta,
                                 'fecha_show': fecha_show,
@@ -705,14 +713,41 @@ def authorize_and_get_data():
                                 'ciudad': ciudad,
                                 'venta_diaria': venta_diaria,
                                 'venta_total': venta_total,
-                                'capacidad': detalles_show['capacidad'],
-                                'holdeo': detalles_show['holdeo'],
-                                'venue': detalles_show['venue'],
-                                'pais': detalles_show['pais'],
-                                'dias_restantes': detalles_show['dias_restantes'],
-                                'funcion': detalles_show['funcion'],
-                                'show': detalles_show['show']
+                                'capacidad': detalles_previos['capacidad'],
+                                'holdeo': detalles_previos['holdeo'],
+                                'venue': detalles_previos['venue'],
+                                'pais': detalles_previos['pais'],
+                                'dias_restantes': detalles_previos['dias_restantes'],
+                                'funcion': "",
+                                'show': detalles_previos['show']
                             })
+                        else:
+                            # Buscar en shows_ticketing
+                            detalles_show = get_show_details_from_shows_ticketing(conn, artista, fecha_show, "")
+                            if detalles_show:
+                                registros_ok += 1
+                                print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
+                                      f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
+                                
+                                registros_a_insertar.append({
+                                    'fecha_venta': fecha_venta,
+                                    'fecha_show': fecha_show,
+                                    'artista': artista,
+                                    'ciudad': ciudad,
+                                    'venta_diaria': venta_diaria,
+                                    'venta_total': venta_total,
+                                    'capacidad': detalles_show['capacidad'],
+                                    'holdeo': detalles_show['holdeo'],
+                                    'venue': detalles_show['venue'],
+                                    'pais': detalles_show['pais'],
+                                    'dias_restantes': detalles_show['dias_restantes'],
+                                    'funcion': detalles_show['funcion'],
+                                    'show': detalles_show['show']
+                                })
+                    except Exception as e:
+                        print(f"Error procesando clave {key}: {e}")
+                        print(f"Tipo de error: {type(e).__name__}")
+                        continue
                 
                 print("-" * 140)
                 print(f"\nTotal de registros OK: {registros_ok}")
@@ -835,6 +870,11 @@ def authorize_and_get_data():
             
             except Exception as e:
                 print(f"\nError al procesar el sheet: {e}")
+                print(f"Detalles adicionales: {type(e).__name__}")
+                if 'key' in locals():
+                    print(f"Clave que causó el error: {key}")
+                if 'row' in locals():
+                    print(f"Fila que causó el error: {row}")
                 if 'conn' in locals():
                     conn.close()
         
@@ -844,6 +884,7 @@ def authorize_and_get_data():
     
     except Exception as e:
         print(f"\nError al procesar el sheet: {e}")
+        print(f"Detalles adicionales: {type(e).__name__}")
         if 'conn' in locals():
             conn.close()
 
