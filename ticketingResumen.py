@@ -179,8 +179,8 @@ def insert_ticket(connection, registro):
         cursor.execute("""
             INSERT INTO tickets 
             (fecha_venta, fecha_show, artista, ciudad, venta_diaria, venta_total,
-             capacidad, holdeo, venue, pais, dias_restantes, funcion, show)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             capacidad, holdeo, venue, pais, dias_restantes, funcion, show, monto_diario_ars, recaudacion_total)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             registro['fecha_venta'],
             registro['fecha_show'],
@@ -194,7 +194,9 @@ def insert_ticket(connection, registro):
             None if registro['pais'] == '-' else registro['pais'],
             None if registro['dias_restantes'] == '-' else registro['dias_restantes'],
             registro['funcion'] if registro['funcion'] else None,
-            registro['show'] if registro['show'] else None
+            registro['show'] if registro['show'] else None,
+            registro['monto_diario_ars'],
+            registro['recaudacion_total']
         ))
         connection.commit()
         return True
@@ -454,6 +456,73 @@ def delete_from_shows_ticketing(connection, artista, fecha_show, funcion):
         connection.rollback()
         return False
 
+def formatear_valor_monetario(valor):
+    """Formatea un valor monetario al formato 2.387.000,00, limpiando símbolos pero manteniendo puntos y comas"""
+    # Si el valor es None, está vacío, es '-' o 'X', devolver '0'
+    if valor is None or (isinstance(valor, str) and (valor.strip() == '' or valor.strip() == '-' or valor.upper() == 'X')):
+        return '0'
+    
+    # Si no es string, convertirlo
+    if not isinstance(valor, str):
+        valor = str(valor)
+    
+    # Eliminar símbolos de moneda y espacios
+    valor_limpio = valor.replace('$', '').replace(' ', '').strip()
+    
+    # Si está vacío después de limpiar o contiene solo "-", devolver 0
+    if not valor_limpio or valor_limpio == '-':
+        return '0'
+    
+    # Mantener el formato con puntos y comas
+    return valor_limpio
+
+def check_and_create_columns(connection):
+    """Verifica si existen las columnas monto_diario_ars y recaudacion_total en la tabla tickets, y las crea si no existen"""
+    try:
+        cursor = connection.cursor()
+        
+        # Verificar si existe la columna monto_diario_ars
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.columns 
+                WHERE table_name = 'tickets' 
+                AND column_name = 'monto_diario_ars'
+            )
+        """)
+        exists_monto_diario = cursor.fetchone()[0]
+        
+        # Verificar si existe la columna recaudacion_total
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.columns 
+                WHERE table_name = 'tickets' 
+                AND column_name = 'recaudacion_total'
+            )
+        """)
+        exists_recaudacion = cursor.fetchone()[0]
+        
+        # Crear las columnas si no existen
+        if not exists_monto_diario:
+            print("Creando columna monto_diario_ars en la tabla tickets...")
+            cursor.execute("ALTER TABLE tickets ADD COLUMN monto_diario_ars TEXT")
+            connection.commit()
+            print("Columna monto_diario_ars creada correctamente")
+        
+        if not exists_recaudacion:
+            print("Creando columna recaudacion_total en la tabla tickets...")
+            cursor.execute("ALTER TABLE tickets ADD COLUMN recaudacion_total TEXT")
+            connection.commit()
+            print("Columna recaudacion_total creada correctamente")
+        
+        cursor.close()
+        return True
+    except Error as e:
+        print(f"Error al verificar o crear columnas: {e}")
+        connection.rollback()
+        return False
+
 def authorize_and_get_data():
     # URLs de los sheets
     sheet_urls = {
@@ -463,6 +532,10 @@ def authorize_and_get_data():
     
     try:
         conn = get_db_connection()
+        
+        if conn:
+            # Verificar y crear columnas si es necesario
+            check_and_create_columns(conn)
         
         for country, sheet_url in sheet_urls.items():
             print(f"\nProcesando el sheet de {country}...")
@@ -493,9 +566,9 @@ def authorize_and_get_data():
                     fecha_venta = f"2025-{mes.zfill(2)}-{dia.zfill(2)}"
             
             print("\nResumen de ventas:")
-            print("-" * 140)
-            print(f"{'Artista':<25} {'Ciudad':<15} {'Fecha Show':<12} {'Fecha Venta':<12} {'Venta Diaria':<15} {'Venta Total':<15} {'F':<5} {'Estado':<15}")
-            print("-" * 140)
+            print("-" * 160)
+            print(f"{'Artista':<25} {'Ciudad':<15} {'Fecha Show':<12} {'Fecha Venta':<12} {'Venta Diaria':<15} {'Monto Diario':<15} {'Venta Total':<15} {'Recaudación':<15} {'F':<5} {'Estado':<15}")
+            print("-" * 160)
             
             # Diccionario para rastrear las combinaciones de Artista-Fecha Show-Ciudad
             combinaciones = {}
@@ -577,6 +650,11 @@ def authorize_and_get_data():
                         except (ValueError, TypeError):
                             venta_diaria = 0
                         
+                        # Procesar monto diario ARS (columna 9 - índice 8)
+                        monto_diario_ars = '0'  # Valor por defecto
+                        if len(row) > 8 and row[8] is not None and row[8].strip():
+                            monto_diario_ars = formatear_valor_monetario(row[8].strip())
+                        
                         # Procesar venta total (columna 10 - índice 9)
                         venta_total = '0'  # Valor por defecto
                         if len(row) > 9 and row[9] is not None and row[9].strip():
@@ -592,11 +670,21 @@ def authorize_and_get_data():
                         except (ValueError, TypeError):
                             venta_total = 0
                         
+                        # Procesar recaudación total (columna 12 - índice 11)
+                        recaudacion_total = '0'  # Valor por defecto
+                        if len(row) > 11 and row[11] is not None and row[11].strip():
+                            recaudacion_total = formatear_valor_monetario(row[11].strip())
+                        
                         artista_procesado = process_artist_name(row[1].strip())
                         ciudad = row[2].strip()
                         
                         # Determinar F usando la combinación de los tres valores
                         key = (artista_procesado, formatted_date, ciudad)
+                        
+                        # Verificar si la clave existe en combinaciones antes de acceder
+                        if key not in combinaciones:
+                            combinaciones[key] = 1  # Si no existe, inicializarla con 1
+                            
                         if combinaciones[key] > 1:
                             if key not in contadores_actuales:
                                 contadores_actuales[key] = 1
@@ -632,10 +720,12 @@ def authorize_and_get_data():
                                     'pais': detalles_previos['pais'],
                                     'dias_restantes': detalles_previos['dias_restantes'],
                                     'funcion': funcion,
-                                    'show': detalles_previos['show']
+                                    'show': detalles_previos['show'],
+                                    'monto_diario_ars': monto_diario_ars,
+                                    'recaudacion_total': recaudacion_total
                                 })
                                 print(f"{artista_procesado:<25} {ciudad:<15} {formatted_date:<12} {fecha_venta:<12} "
-                                      f"{venta_diaria:<15} {venta_total:<15} {funcion:<5} {estado:<15}")
+                                      f"{venta_diaria:<15} {monto_diario_ars:<15} {venta_total:<15} {recaudacion_total:<15} {funcion:<5} {estado:<15}")
                             elif not existe:
                                 estado = "NO COINCIDE"
                                 key = (artista_procesado, formatted_date, ciudad, venta_diaria, venta_total)  # Añadimos ventas al key
@@ -660,57 +750,74 @@ def authorize_and_get_data():
                                     'pais': detalles_previos['pais'],
                                     'dias_restantes': detalles_previos['dias_restantes'],
                                     'funcion': funcion,
-                                    'show': detalles_previos['show']
+                                    'show': detalles_previos['show'],
+                                    'monto_diario_ars': monto_diario_ars,
+                                    'recaudacion_total': recaudacion_total
                                 })
                                 print(f"{artista_procesado:<25} {ciudad:<15} {formatted_date:<12} {fecha_venta:<12} "
-                                      f"{venta_diaria:<15} {venta_total:<15} {funcion:<5} {estado:<15}")
+                                      f"{venta_diaria:<15} {monto_diario_ars:<15} {venta_total:<15} {recaudacion_total:<15} {funcion:<5} {estado:<15}")
                         else:
                             estado = "SIN CONEXIÓN"
                 
                 # Procesar registros que no coincidieron
                 for key in no_coinciden:
                     try:
-                        # Caso especial para Khea en Vigo
-                        if len(key) == 3 and key[0] == 'Khea' and key[2] == 'Vigo':
-                            artista, fecha_show, ciudad = key
-                            venta_diaria = 0
-                            venta_total = 0
-                            print(f"Procesando caso especial: Khea en Vigo con venta diaria 0")
-                        else:
-                            artista, fecha_show, ciudad, venta_diaria, venta_total = key
+                        # Verificar el formato de la clave y extraer los valores
+                        if isinstance(key, tuple) and len(key) >= 3:
+                            artista = key[0]
+                            fecha_show = key[1]
+                            ciudad = key[2]
                             
-                        existe = get_existing_show_details(conn, artista, fecha_show, "")
-                        if existe:
-                            registros_ok += 1
-                            # Imprimir en la tabla de resumen
-                            print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
-                                  f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
+                            # Extraer venta_diaria y venta_total si están disponibles
+                            venta_diaria = key[3] if len(key) > 3 else 0
+                            venta_total = key[4] if len(key) > 4 else 0
                             
-                            # Obtener detalles del registro anterior y añadir a registros_a_insertar
-                            detalles_previos = get_last_record_details(conn, artista, fecha_show, "")
-                            registros_a_insertar.append({
-                                'fecha_venta': fecha_venta,
-                                'fecha_show': fecha_show,
-                                'artista': artista,
-                                'ciudad': ciudad,
-                                'venta_diaria': venta_diaria,
-                                'venta_total': venta_total,
-                                'capacidad': detalles_previos['capacidad'],
-                                'holdeo': detalles_previos['holdeo'],
-                                'venue': detalles_previos['venue'],
-                                'pais': detalles_previos['pais'],
-                                'dias_restantes': detalles_previos['dias_restantes'],
-                                'funcion': "",
-                                'show': detalles_previos['show']
-                            })
-                        else:
-                            # Buscar en shows_ticketing
-                            detalles_show = get_show_details_from_shows_ticketing(conn, artista, fecha_show, "")
-                            if detalles_show:
+                            # Caso especial para Khea en Vigo
+                            if artista == 'Khea' and ciudad == 'Vigo':
+                                print(f"Procesando caso especial: Khea en Vigo")
+                            
+                            # Buscar los valores de monto_diario_ars y recaudacion_total en el sheet
+                            monto_diario_ars = '0'
+                            recaudacion_total = '0'
+                            
+                            # Buscar en todas las filas para encontrar este artista y fecha
+                            for row in all_values[3:]:
+                                if (len(row) >= 10 and 
+                                    process_artist_name(row[1].strip()) == artista and
+                                    ciudad == row[2].strip()):
+                                    
+                                    # Procesar fecha show para comparar
+                                    original_date = row[0].strip()
+                                    if '/' in original_date:
+                                        date_parts = original_date.split('/')
+                                        if len(date_parts) == 3:
+                                            if len(date_parts[2]) == 2:
+                                                date_parts[2] = '2025'
+                                            row_date = f"{date_parts[2]}-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
+                                        elif len(date_parts) == 2:
+                                            row_date = f"2025-{date_parts[1].zfill(2)}-{date_parts[0].zfill(2)}"
+                                        else:
+                                            row_date = '2025-01-01'
+                                    else:
+                                        row_date = '2025-01-01'
+                                    
+                                    if row_date == fecha_show:
+                                        # Encontramos la fila, obtener valores
+                                        if len(row) > 8:
+                                            monto_diario_ars = formatear_valor_monetario(row[8])
+                                        if len(row) > 11:
+                                            recaudacion_total = formatear_valor_monetario(row[11])
+                                        break
+                            
+                            existe = get_existing_show_details(conn, artista, fecha_show, "")
+                            if existe:
                                 registros_ok += 1
+                                # Imprimir en la tabla de resumen
                                 print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
-                                      f"{venta_diaria:<15} {venta_total:<15} {'   ':<5} {'OK':<15}")
+                                      f"{venta_diaria:<15} {monto_diario_ars:<15} {venta_total:<15} {recaudacion_total:<15} {'   ':<5} {'OK':<15}")
                                 
+                                # Obtener detalles del registro anterior y añadir a registros_a_insertar
+                                detalles_previos = get_last_record_details(conn, artista, fecha_show, "")
                                 registros_a_insertar.append({
                                     'fecha_venta': fecha_venta,
                                     'fecha_show': fecha_show,
@@ -718,20 +825,49 @@ def authorize_and_get_data():
                                     'ciudad': ciudad,
                                     'venta_diaria': venta_diaria,
                                     'venta_total': venta_total,
-                                    'capacidad': detalles_show['capacidad'],
-                                    'holdeo': detalles_show['holdeo'],
-                                    'venue': detalles_show['venue'],
-                                    'pais': detalles_show['pais'],
-                                    'dias_restantes': detalles_show['dias_restantes'],
-                                    'funcion': detalles_show['funcion'],
-                                    'show': detalles_show['show']
+                                    'capacidad': detalles_previos['capacidad'],
+                                    'holdeo': detalles_previos['holdeo'],
+                                    'venue': detalles_previos['venue'],
+                                    'pais': detalles_previos['pais'],
+                                    'dias_restantes': detalles_previos['dias_restantes'],
+                                    'funcion': "",
+                                    'show': detalles_previos['show'],
+                                    'monto_diario_ars': monto_diario_ars,
+                                    'recaudacion_total': recaudacion_total
                                 })
+                            else:
+                                # Buscar en shows_ticketing
+                                detalles_show = get_show_details_from_shows_ticketing(conn, artista, fecha_show, "")
+                                if detalles_show:
+                                    registros_ok += 1
+                                    print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
+                                          f"{venta_diaria:<15} {monto_diario_ars:<15} {venta_total:<15} {recaudacion_total:<15} {'   ':<5} {'OK':<15}")
+                                    
+                                    registros_a_insertar.append({
+                                        'fecha_venta': fecha_venta,
+                                        'fecha_show': fecha_show,
+                                        'artista': artista,
+                                        'ciudad': ciudad,
+                                        'venta_diaria': venta_diaria,
+                                        'venta_total': venta_total,
+                                        'capacidad': detalles_show['capacidad'],
+                                        'holdeo': detalles_show['holdeo'],
+                                        'venue': detalles_show['venue'],
+                                        'pais': detalles_show['pais'],
+                                        'dias_restantes': detalles_show['dias_restantes'],
+                                        'funcion': detalles_show['funcion'],
+                                        'show': detalles_show['show'],
+                                        'monto_diario_ars': monto_diario_ars,
+                                        'recaudacion_total': recaudacion_total
+                                    })
+                        else:
+                            print(f"Formato de clave no válido: {key}")
                     except Exception as e:
                         print(f"Error procesando clave {key}: {e}")
                         print(f"Tipo de error: {type(e).__name__}")
                         continue
                 
-                print("-" * 140)
+                print("-" * 160)
                 print(f"\nTotal de registros OK: {registros_ok}")
                 
                 # Conectar a la base de datos para la segunda tabla
@@ -751,9 +887,9 @@ def authorize_and_get_data():
                     
                     # Reemplazar la parte de inserción con un preview
                     print("\nPreview de datos a insertar:")
-                    print("-" * 140)
-                    print(f"{'Fecha Venta':<12} {'Fecha Show':<12} {'Artista':<25} {'Ciudad':<15} {'Venta D.':<10} {'Venta T.':<10} {'Cap.':<8} {'Holdeo':<8} {'Venue':<20} {'País':<10} {'Días':<6} {'Func.':<5}")
-                    print("-" * 140)
+                    print("-" * 180)
+                    print(f"{'Fecha Venta':<12} {'Fecha Show':<12} {'Artista':<25} {'Ciudad':<15} {'Venta D.':<10} {'Venta T.':<10} {'MD ARS':<15} {'RT':<15} {'Cap.':<8} {'Holdeo':<8} {'Venue':<20} {'País':<10} {'Días':<6} {'Func.':<5}")
+                    print("-" * 180)
                     
                     for registro in registros_a_insertar:
                         print(
@@ -763,6 +899,8 @@ def authorize_and_get_data():
                             f"{registro['ciudad'][:14]:<15} "
                             f"{str(registro['venta_diaria'])[:9]:<10} "
                             f"{str(registro['venta_total'])[:9]:<10} "
+                            f"{registro['monto_diario_ars'][:14]:<15} "
+                            f"{registro['recaudacion_total'][:14]:<15} "
                             f"{str(registro['capacidad'])[:7]:<8} "
                             f"{str(registro['holdeo'])[:7]:<8} "
                             f"{registro['venue'][:19]:<20} "
@@ -771,7 +909,7 @@ def authorize_and_get_data():
                             f"{registro['funcion']:<5}"
                         )
                     
-                    print("-" * 140)
+                    print("-" * 180)
                     print(f"\nTotal de registros a insertar: {len(registros_a_insertar)}")
 
                     # Crear un set para trackear shows ya insertados
@@ -798,6 +936,8 @@ def authorize_and_get_data():
                         shows_procesados.add(show_key)
                         
                         print(f"Intentando insertar: {registro['artista']} - {registro['fecha_show']}")
+                        
+                        # Inserción real en la base de datos
                         if insert_ticket(conn, registro):
                             registros_insertados.append({
                                 'artista': registro['artista'],
