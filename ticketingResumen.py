@@ -564,16 +564,8 @@ def authorize_and_get_data():
                         
                         # Procesar venta diaria (columna 8 - índice 7)
                         venta = '0'  # Valor por defecto
-                        if len(row) > 7:
-                            if row[7] is not None and row[7].strip():
-                                venta = row[7].strip()
-                            else:
-                                # Si está vacío, asegurarse de que sea '0'
-                                venta = '0'
-                                # Caso especial para Khea en Vigo
-                                if artista_procesado == 'Khea' and ciudad == 'Vigo':
-                                    print(f"Detectado Khea en Vigo con venta diaria vacía, estableciendo a 0")
-                        
+                        if len(row) > 7 and row[7] is not None and row[7].strip():
+                            venta = row[7].strip()
                         if venta.upper() == 'X' or venta == '':
                             venta = '0'
                         # Quitar punto separador de miles si el número es mayor a 1000
@@ -605,10 +597,6 @@ def authorize_and_get_data():
                         
                         # Determinar F usando la combinación de los tres valores
                         key = (artista_procesado, formatted_date, ciudad)
-                        # Verificar si la clave existe en combinaciones
-                        if key not in combinaciones:
-                            combinaciones[key] = 1
-                            
                         if combinaciones[key] > 1:
                             if key not in contadores_actuales:
                                 contadores_actuales[key] = 1
@@ -650,15 +638,9 @@ def authorize_and_get_data():
                                       f"{venta_diaria:<15} {venta_total:<15} {funcion:<5} {estado:<15}")
                             elif not existe:
                                 estado = "NO COINCIDE"
-                                # Caso especial para Khea en Vigo
-                                if artista_procesado == 'Khea' and ciudad == 'Vigo':
-                                    print(f"Detectado Khea en Vigo en estado NO COINCIDE, usando clave de 5 elementos")
-                                    key_no_coincide = (artista_procesado, formatted_date, ciudad, 0.0, 0.0)
-                                else:
-                                    key_no_coincide = (artista_procesado, formatted_date, ciudad, venta_diaria, venta_total)
-                                
-                                if key_no_coincide not in no_coinciden:
-                                    no_coinciden[key_no_coincide] = True
+                                key = (artista_procesado, formatted_date, ciudad, venta_diaria, venta_total)  # Añadimos ventas al key
+                                if key not in no_coinciden:
+                                    no_coinciden[key] = True
                             else:
                                 registros_ok += 1
                                 # Obtener detalles del registro anterior
