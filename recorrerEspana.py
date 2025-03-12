@@ -47,6 +47,41 @@ def get_fechas_venta_y_datos(connection, artista, fecha_show):
         print(f"Error en la consulta: {e}")
         return [], {}
 
+def update_db_values(connection, updates):
+    """Actualiza los valores en la base de datos para corregir discrepancias"""
+    if not updates:
+        return 0
+    
+    try:
+        cursor = connection.cursor()
+        updated_count = 0
+        
+        for update in updates:
+            cursor.execute("""
+                UPDATE tickets 
+                SET venta_diaria = %s, venta_total = %s, monto_diario_ars = %s, recaudacion_total = %s
+                WHERE artista = %s 
+                AND fecha_show = %s 
+                AND fecha_venta = %s
+            """, (
+                update['vd_sheet'], 
+                update['vt_sheet'],
+                update['md_sheet'],
+                update['rt_sheet'],
+                update['artista'], 
+                update['fecha_show'], 
+                update['fecha_venta']
+            ))
+            updated_count += cursor.rowcount
+        
+        connection.commit()
+        cursor.close()
+        return updated_count
+    except Error as e:
+        print(f"Error al actualizar la base de datos: {e}")
+        connection.rollback()
+        return 0
+
 def check_shows_ticketing(connection, artista, fecha_show):
     try:
         cursor = connection.cursor()
@@ -136,25 +171,43 @@ def process_artist_name(artist):
 
 def normalizar_numero(valor):
     """Normaliza un valor numérico eliminando separadores de miles y símbolos de moneda"""
+    # Si ya es un número, simplemente devolverlo como float
     if isinstance(valor, (int, float)):
         return float(valor)
     
+    # Si es None o un valor vacío o un guión
     if not valor or valor == '-' or valor == '$ -':
         return 0.0
     
     # Eliminar símbolos de moneda y espacios
     valor = valor.replace('$', '').replace(' ', '').strip()
     
-    # Eliminar separadores de miles (puntos)
-    valor = valor.replace('.', '')
-    
-    # Reemplazar coma por punto para decimales
-    valor = valor.replace(',', '.')
+    # Detectar formato español (1.234,56 o 1.234)
+    if '.' in valor and (',' in valor or len(valor.split('.')[-1]) > 2 or valor.count('.') > 1):
+        # Es un número con formato español (punto como separador de miles)
+        valor = valor.replace('.', '')  # Eliminar puntos (separadores de miles)
+        valor = valor.replace(',', '.')  # Reemplazar coma por punto (para decimales)
     
     try:
         return float(valor)
     except ValueError:
-        return 0.0
+        # Si falla, intentar otros métodos
+        try:
+            # Intentar reemplazando coma por punto
+            return float(valor.replace(',', '.'))
+        except ValueError:
+            return 0.0
+
+def limpiar_valor_numerico(valor):
+    """Limpia un valor numérico dejando solo números, puntos y comas"""
+    if not valor or valor == '-' or valor == '$ -':
+        return '0'
+    
+    # Eliminar símbolos de moneda y espacios
+    valor = valor.replace('$', '').strip()
+    
+    # Mantener solo números, puntos y comas
+    return valor
 
 def recorrer_espana():
     # URL del sheet de España
@@ -184,6 +237,9 @@ def recorrer_espana():
         
         # Lista para almacenar shows con discrepancias
         shows_con_discrepancias = []
+        
+        # Lista para almacenar actualizaciones a realizar en la BD
+        actualizaciones_bd = []
         
         # Procesar todas las hojas automáticamente
         for wks in worksheets:
@@ -228,6 +284,9 @@ def recorrer_espana():
             row_index = 13
             filas_coincidentes = 0
             
+            # Variable para almacenar el último valor de RT válido
+            ultimo_rt_valido = '$ 0'
+            
             # Recorrer filas hasta que la columna B esté vacía
             while row_index < len(all_values):
                 row = all_values[row_index]
@@ -251,6 +310,13 @@ def recorrer_espana():
                 if not d_valor or d_valor == '$ -':
                     d_valor = '$ 0'
                 
+                # Formatear columna RT (f_valor): si está vacía o es '$ -', usar el último valor válido
+                if not f_valor or f_valor == '$ -':
+                    f_valor = ultimo_rt_valido
+                else:
+                    # Actualizar el último valor válido de RT
+                    ultimo_rt_valido = f_valor
+                
                 # Formatear la fecha (columna B - FV) al formato aaaa-mm-dd
                 if b_valor:
                     b_valor_formateado = formatear_fecha(b_valor)
@@ -264,15 +330,19 @@ def recorrer_espana():
                         venta_diaria_bd = datos_bd['venta_diaria']
                         venta_total_bd = datos_bd['venta_total']
                         
-                        # Normalizar valores para comparación
+                        # Mostrar valores originales para depuración solo si hay discrepancia
                         vd_sheet = normalizar_numero(c_valor)
                         vt_sheet = normalizar_numero(e_valor)
                         vd_bd = normalizar_numero(venta_diaria_bd)
                         vt_bd = normalizar_numero(venta_total_bd)
                         
-                        # Verificar si coinciden los valores
-                        coincide_vd = abs(vd_sheet - vd_bd) < 0.01  # Tolerancia para errores de redondeo
-                        coincide_vt = abs(vt_sheet - vt_bd) < 0.01  # Tolerancia para errores de redondeo
+                        # Limpiar valores de MD y RT para la base de datos (solo números, puntos y comas)
+                        md_sheet = limpiar_valor_numerico(d_valor)
+                        rt_sheet = limpiar_valor_numerico(f_valor)
+                        
+                        # Comparación directa de valores normalizados
+                        coincide_vd = abs(vd_sheet - vd_bd) < 0.01
+                        coincide_vt = abs(vt_sheet - vt_bd) < 0.01
                         
                         # Registrar discrepancias
                         if not coincide_vd or not coincide_vt:
@@ -282,12 +352,47 @@ def recorrer_espana():
                                 'fecha_venta': b_valor_formateado,
                                 'vd_sheet': vd_sheet,
                                 'vd_bd': vd_bd,
+                                'vd_bd_raw': venta_diaria_bd,
                                 'vt_sheet': vt_sheet,
                                 'vt_bd': vt_bd,
+                                'vt_bd_raw': venta_total_bd,
                                 'coincide_vd': coincide_vd,
                                 'coincide_vt': coincide_vt
                             }
                             shows_con_discrepancias.append(discrepancia)
+                            
+                            # Añadir a la lista de actualizaciones para la BD
+                            actualizaciones_bd.append({
+                                'artista': artista_procesado,
+                                'fecha_show': fecha_show_formateada,
+                                'fecha_venta': b_valor_formateado,
+                                'vd_sheet': vd_sheet,
+                                'vt_sheet': vt_sheet,
+                                'md_sheet': md_sheet,
+                                'rt_sheet': rt_sheet
+                            })
+                            
+                            # Mostrar detalles de la discrepancia inmediatamente
+                            print(f"\n⚠️ DISCREPANCIA DETECTADA en {artista_procesado} - {fecha_show_formateada} - {b_valor_formateado}:")
+                            if not coincide_vd:
+                                print(f"  VD Sheet: {c_valor} → {vd_sheet:.2f}")
+                                print(f"  VD BD:    {venta_diaria_bd} → {vd_bd:.2f}")
+                                print(f"  Diferencia: {abs(vd_sheet - vd_bd):.2f}")
+                            if not coincide_vt:
+                                print(f"  VT Sheet: {e_valor} → {vt_sheet:.2f}")
+                                print(f"  VT BD:    {venta_total_bd} → {vt_bd:.2f}")
+                                print(f"  Diferencia: {abs(vt_sheet - vt_bd):.2f}")
+                        else:
+                            # Si no hay discrepancias en VD y VT, aún así actualizar MD y RT
+                            actualizaciones_bd.append({
+                                'artista': artista_procesado,
+                                'fecha_show': fecha_show_formateada,
+                                'fecha_venta': b_valor_formateado,
+                                'vd_sheet': vd_sheet,
+                                'vt_sheet': vt_sheet,
+                                'md_sheet': md_sheet,
+                                'rt_sheet': rt_sheet
+                            })
                         
                         # Imprimir los valores con indicadores de coincidencia
                         coincide_vd_str = "✓" if coincide_vd else "✗"
@@ -316,7 +421,7 @@ def recorrer_espana():
         if shows_con_discrepancias:
             print(f"Se encontraron {len(shows_con_discrepancias)} shows con datos que no coinciden:")
             print("-" * 100)
-            print(f"{'Artista':<20} {'Fecha Show':<12} {'Fecha Venta':<12} {'VD Sheet':<10} {'VD BD':<10} {'VT Sheet':<10} {'VT BD':<10} {'Problema':<20}")
+            print(f"{'Artista':<20} {'Fecha Show':<12} {'Fecha Venta':<12} {'VD Sheet':<15} {'VD BD':<15} {'VT Sheet':<15} {'VT BD':<15} {'Problema':<20}")
             print("-" * 100)
             
             for disc in shows_con_discrepancias:
@@ -329,10 +434,22 @@ def recorrer_espana():
                 problema_str = " y ".join(problema)
                 
                 print(f"{disc['artista']:<20} {disc['fecha_show']:<12} {disc['fecha_venta']:<12} "
-                      f"{disc['vd_sheet']:<10.2f} {disc['vd_bd']:<10.2f} {disc['vt_sheet']:<10.2f} {disc['vt_bd']:<10.2f} "
+                      f"{disc['vd_sheet']:<15.2f} {disc['vd_bd_raw']:<15} {disc['vt_sheet']:<15.2f} {disc['vt_bd_raw']:<15} "
                       f"{problema_str:<20}")
         else:
             print("¡No se encontraron discrepancias! Todos los datos coinciden correctamente.")
+        
+        # Actualizar la base de datos con los valores del sheet
+        if actualizaciones_bd:
+            print("\n" + "=" * 100)
+            print(f"🔄 ACTUALIZANDO BASE DE DATOS 🔄")
+            print("=" * 100)
+            
+            print(f"Se van a actualizar {len(actualizaciones_bd)} registros en la base de datos...")
+            
+            # Actualizar automáticamente sin pedir confirmación
+            registros_actualizados = update_db_values(conn, actualizaciones_bd)
+            print(f"✅ Se han actualizado {registros_actualizados} registros en la base de datos.")
         
         print("=" * 100)
         print(f"🎵 Se han recorrido todas las hojas ({hojas_procesadas}/{len(worksheets)}) 🎵")
