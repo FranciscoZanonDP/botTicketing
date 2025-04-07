@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 import psycopg2
 from psycopg2 import Error
+import time
 
 def get_db_connection():
     try:
@@ -47,39 +48,88 @@ def get_fechas_venta_y_datos(connection, artista, fecha_show):
         print(f"Error en la consulta: {e}")
         return [], {}
 
-def update_db_values(connection, updates):
-    """Actualiza los valores en la base de datos para corregir discrepancias"""
+def update_db_values(connection, updates, batch_size=25):
+    """Actualiza los valores en la base de datos para corregir discrepancias
+    
+    Args:
+        connection: Conexión a la base de datos
+        updates: Lista de diccionarios con los valores a actualizar
+        batch_size: Tamaño del lote para actualizar (por defecto 25)
+    
+    Returns:
+        int: Número de registros actualizados
+    """
     if not updates:
         return 0
     
     try:
-        cursor = connection.cursor()
         updated_count = 0
+        total_updates = len(updates)
         
-        for update in updates:
-            cursor.execute("""
-                UPDATE tickets 
-                SET venta_diaria = %s, venta_total = %s, monto_diario_ars = %s, recaudacion_total = %s
-                WHERE artista = %s 
-                AND fecha_show = %s 
-                AND fecha_venta = %s
-            """, (
-                update['vd_sheet'], 
-                update['vt_sheet'],
-                update['md_sheet'],
-                update['rt_sheet'],
-                update['artista'], 
-                update['fecha_show'], 
-                update['fecha_venta']
-            ))
-            updated_count += cursor.rowcount
+        # Dividir las actualizaciones en lotes
+        batches = [updates[i:i + batch_size] for i in range(0, len(updates), batch_size)]
         
-        connection.commit()
-        cursor.close()
+        print(f"\nActualizando {total_updates} registros en {len(batches)} lotes de {batch_size}...")
+        
+        for batch_index, batch in enumerate(batches, 1):
+            try:
+                cursor = connection.cursor()
+                batch_updated = 0
+                
+                print(f"\nProcesando lote {batch_index}/{len(batches)} ({len(batch)} registros)...")
+                
+                for update_index, update in enumerate(batch, 1):
+                    try:
+                        cursor.execute("""
+                            UPDATE tickets 
+                            SET venta_diaria = %s, venta_total = %s, monto_diario_ars = %s, recaudacion_total = %s
+                            WHERE artista = %s 
+                            AND fecha_show = %s 
+                            AND fecha_venta = %s
+                        """, (
+                            update['vd_sheet'], 
+                            update['vt_sheet'],
+                            update['md_sheet'],
+                            update['rt_sheet'],
+                            update['artista'], 
+                            update['fecha_show'], 
+                            update['fecha_venta']
+                        ))
+                        
+                        rows_affected = cursor.rowcount
+                        batch_updated += rows_affected
+                        updated_count += rows_affected
+                        
+                        # Mostrar progreso cada 5 registros o en el último registro
+                        if update_index % 5 == 0 or update_index == len(batch):
+                            print(f"  Progreso: {update_index}/{len(batch)} registros procesados en este lote")
+                            
+                    except Error as e:
+                        print(f"  ❌ Error al actualizar registro {update_index} del lote {batch_index}: {e}")
+                        print(f"  Detalles: {update['artista']} - {update['fecha_show']} - {update['fecha_venta']}")
+                        connection.rollback()
+                        continue
+                
+                # Commit al final de cada lote
+                connection.commit()
+                print(f"  ✅ Lote {batch_index} completado: {batch_updated} registros actualizados")
+                
+                # Pequeña pausa entre lotes para no sobrecargar la BD
+                if batch_index < len(batches):
+                    print("  Pausa de 1 segundo antes del siguiente lote...")
+                    time.sleep(1)
+                    
+            except Error as e:
+                print(f"  ❌ Error procesando lote {batch_index}: {e}")
+                connection.rollback()
+            finally:
+                cursor.close()
+        
         return updated_count
     except Error as e:
-        print(f"Error al actualizar la base de datos: {e}")
-        connection.rollback()
+        print(f"Error general al actualizar la base de datos: {e}")
+        if 'connection' in locals() and connection:
+            connection.rollback()
         return 0
 
 def check_shows_ticketing(connection, artista, fecha_show):
@@ -101,15 +151,28 @@ def check_shows_ticketing(connection, artista, fecha_show):
         print(f"Error en la consulta a shows_ticketing: {e}")
         return False
 
-def formatear_fecha(fecha_str):
-    """Convierte diferentes formatos de fecha a 'aaaa-mm-dd'"""
+def formatear_fecha(fecha_str, es_fecha_show=False):
+    """Convierte diferentes formatos de fecha a 'aaaa-mm-dd'
+    
+    Args:
+        fecha_str: String con la fecha a formatear
+        es_fecha_show: Booleano que indica si es la fecha del show (B2) o una fecha de venta (columna B)
+    """
     fecha_str = fecha_str.strip()
     
-    # Si ya está en formato aaaa-mm-dd, devolverlo tal cual pero asegurando que el año sea 2025
+    # Si ya está en formato aaaa-mm-dd, extraer mes y día, y asignar año según el mes
     if re.match(r'^\d{4}-\d{2}-\d{2}$', fecha_str):
-        # Extraer mes y día, y usar 2025 como año
+        # Extraer mes y día
         partes = fecha_str.split('-')
-        return f"2025-{partes[1]}-{partes[2]}"
+        mes = int(partes[1])
+        
+        # Si es fecha del show (B2), siempre usar 2025
+        if es_fecha_show:
+            return f"2025-{partes[1]}-{partes[2]}"
+        
+        # Para fechas de venta (columna B): junio a diciembre -> 2024, enero a mayo -> 2025
+        año = "2024" if 6 <= mes <= 12 else "2025"
+        return f"{año}-{partes[1]}-{partes[2]}"
     
     # Caso especial: formato dd/mm (sin año)
     if re.match(r'^\d{1,2}/\d{1,2}$', fecha_str):
@@ -119,8 +182,12 @@ def formatear_fecha(fecha_str):
             dia = partes[0].zfill(2)  # Asegurar que tenga 2 dígitos
             mes = int(partes[1])  # Convertir a entero para comparar
             
-            # Usar siempre 2025 como año
-            año = 2025
+            # Si es fecha del show (B2), siempre usar 2025
+            if es_fecha_show:
+                año = 2025
+            else:
+                # Para fechas de venta (columna B): junio a diciembre -> 2024, enero a mayo -> 2025
+                año = 2024 if 6 <= mes <= 12 else 2025
             
             mes_str = str(mes).zfill(2)  # Convertir de nuevo a string con 2 dígitos
             
@@ -142,8 +209,15 @@ def formatear_fecha(fecha_str):
     for formato in formatos:
         try:
             fecha = datetime.strptime(fecha_str, formato)
-            # Extraer mes y día, y usar 2025 como año
-            return f"2025-{fecha.strftime('%m-%d')}"
+            mes = fecha.month
+            
+            # Si es fecha del show (B2), siempre usar 2025
+            if es_fecha_show:
+                return f"2025-{fecha.strftime('%m-%d')}"
+            
+            # Para fechas de venta (columna B): junio a diciembre -> 2024, enero a mayo -> 2025
+            año = 2024 if 6 <= mes <= 12 else 2025
+            return f"{año}-{fecha.strftime('%m-%d')}"
         except ValueError:
             continue
     
@@ -251,7 +325,7 @@ def recorrer_espana():
             
             # Obtener la fecha del show de la celda B2
             fecha_show_raw = wks.get_value('B2').strip()
-            fecha_show_formateada = formatear_fecha(fecha_show_raw)
+            fecha_show_formateada = formatear_fecha(fecha_show_raw, es_fecha_show=True)
             
             print(f"Artista (B1): {artista_procesado}")
             print(f"Fecha Show (B2): {fecha_show_formateada}")
@@ -319,7 +393,7 @@ def recorrer_espana():
                 
                 # Formatear la fecha (columna B - FV) al formato aaaa-mm-dd
                 if b_valor:
-                    b_valor_formateado = formatear_fecha(b_valor)
+                    b_valor_formateado = formatear_fecha(b_valor, es_fecha_show=False)
                     
                     # Verificar si la fecha formateada coincide con alguna fecha_venta de la base de datos
                     if b_valor_formateado in fechas_venta:
@@ -447,9 +521,23 @@ def recorrer_espana():
             
             print(f"Se van a actualizar {len(actualizaciones_bd)} registros en la base de datos...")
             
-            # Actualizar automáticamente sin pedir confirmación
-            registros_actualizados = update_db_values(conn, actualizaciones_bd)
-            print(f"✅ Se han actualizado {registros_actualizados} registros en la base de datos.")
+            # Cerrar la conexión actual y abrir una nueva para asegurar una conexión fresca
+            if conn:
+                print("Cerrando conexión actual a la base de datos...")
+                conn.close()
+            
+            print("Estableciendo nueva conexión a la base de datos...")
+            conn = get_db_connection()
+            
+            if not conn:
+                print("❌ No se pudo establecer una nueva conexión a la base de datos.")
+                return
+            
+            print("✅ Nueva conexión establecida correctamente.")
+            
+            # Actualizar por lotes
+            registros_actualizados = update_db_values(conn, actualizaciones_bd, batch_size=25)
+            print(f"\n✅ RESUMEN: Se han actualizado {registros_actualizados} de {len(actualizaciones_bd)} registros en la base de datos.")
         
         print("=" * 100)
         print(f"🎵 Se han recorrido todas las hojas ({hojas_procesadas}/{len(worksheets)}) 🎵")

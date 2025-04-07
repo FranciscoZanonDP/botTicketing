@@ -11,7 +11,7 @@ from email.mime.multipart import MIMEMultipart
 def send_email_report(insertados, no_insertados):
     sender_email = "malbec@daleplay.la"
     receiver_email = "francisco.zanon@daleplay.la"
-    password = "mkop xmtu zvlf ryxn"
+    password = "gipz izjp uyci qlqv"
 
     message = MIMEMultipart('alternative')
     message["From"] = sender_email
