@@ -543,7 +543,7 @@ def authorize_and_get_data():
             # Autorizar y abrir el sheet
             gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
             sh = gc.open_by_url(sheet_url)
-            wks = sh.worksheet_by_title('Resumen')
+            wks = sh.worksheet_by_title('Resumen A-Z')
             
             all_values = wks.get_all_values(include_tailing_empty=False)
             
