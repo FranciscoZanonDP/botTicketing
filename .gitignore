@@ -1,0 +1,10 @@
+# Excluir carpetas de Python
+Scripts/
+Lib/
+
+# Excluir archivos de configuración y secretos
+client_secret.json
+sheets.googleapis.com-python.json
+
+# Excluir archivos temporales y de instalación
+get-pip.py 
