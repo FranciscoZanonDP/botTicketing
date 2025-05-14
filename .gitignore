@@ -7,4 +7,4 @@ client_secret.json
 sheets.googleapis.com-python.json
 
 # Excluir archivos temporales y de instalación
-get-pip.py 
+get-pip.py sheets.googleapis.com-python.json
