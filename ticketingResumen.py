@@ -695,21 +695,33 @@ def authorize_and_get_data():
                         else:
                             funcion = ""
                         
-                        # Verificar si existe en la base de datos
+                        # Verificar si existe en la base de datos (ahora para 2025 y 2026)
                         estado = "OK"
                         if conn:
-                            existe = get_existing_show_details(conn, artista_procesado, formatted_date, funcion)
+                            # Buscar para ambos años y devolver cuál coincide
+                            def get_both_years_existe_y_fecha(artista, fecha, funcion):
+                                try:
+                                    year, mes, dia = fecha.split('-')
+                                    alt_year = '2026' if year == '2025' else ('2025' if year == '2026' else year)
+                                    fecha_alt = f"{alt_year}-{mes}-{dia}"
+                                except Exception:
+                                    fecha_alt = fecha
+                                existe = get_existing_show_details(conn, artista, fecha, funcion)
+                                if existe:
+                                    return True, fecha
+                                existe_alt = get_existing_show_details(conn, artista, fecha_alt, funcion)
+                                if existe_alt:
+                                    return True, fecha_alt
+                                return False, fecha
+                            existe, fecha_coincidente = get_both_years_existe_y_fecha(artista_procesado, formatted_date, funcion)
                             if existe == 'NULL':
                                 funcion = ""
                                 estado = "OK"
                                 registros_ok += 1
-                                # Obtener detalles del registro anterior
-                                detalles_previos = get_last_record_details(conn, artista_procesado, formatted_date, funcion)
-                                
-                                # Guardar para inserción
+                                detalles_previos = get_last_record_details(conn, artista_procesado, fecha_coincidente, funcion)
                                 registros_a_insertar.append({
                                     'fecha_venta': fecha_venta,
-                                    'fecha_show': formatted_date,
+                                    'fecha_show': fecha_coincidente,
                                     'artista': artista_procesado,
                                     'ciudad': ciudad,
                                     'venta_diaria': venta_diaria,
@@ -724,7 +736,7 @@ def authorize_and_get_data():
                                     'monto_diario_ars': monto_diario_ars,
                                     'recaudacion_total': recaudacion_total
                                 })
-                                print(f"{artista_procesado:<25} {ciudad:<15} {formatted_date:<12} {fecha_venta:<12} "
+                                print(f"{artista_procesado:<25} {ciudad:<15} {fecha_coincidente:<12} {fecha_venta:<12} "
                                       f"{venta_diaria:<15} {monto_diario_ars:<15} {venta_total:<15} {recaudacion_total:<15} {funcion:<5} {estado:<15}")
                             elif not existe:
                                 estado = "NO COINCIDE"
@@ -733,13 +745,10 @@ def authorize_and_get_data():
                                     no_coinciden[key] = True
                             else:
                                 registros_ok += 1
-                                # Obtener detalles del registro anterior
-                                detalles_previos = get_last_record_details(conn, artista_procesado, formatted_date, funcion)
-                                
-                                # Guardar para inserción
+                                detalles_previos = get_last_record_details(conn, artista_procesado, fecha_coincidente, funcion)
                                 registros_a_insertar.append({
                                     'fecha_venta': fecha_venta,
-                                    'fecha_show': formatted_date,
+                                    'fecha_show': fecha_coincidente,
                                     'artista': artista_procesado,
                                     'ciudad': ciudad,
                                     'venta_diaria': venta_diaria,
@@ -754,7 +763,7 @@ def authorize_and_get_data():
                                     'monto_diario_ars': monto_diario_ars,
                                     'recaudacion_total': recaudacion_total
                                 })
-                                print(f"{artista_procesado:<25} {ciudad:<15} {formatted_date:<12} {fecha_venta:<12} "
+                                print(f"{artista_procesado:<25} {ciudad:<15} {fecha_coincidente:<12} {fecha_venta:<12} "
                                       f"{venta_diaria:<15} {monto_diario_ars:<15} {venta_total:<15} {recaudacion_total:<15} {funcion:<5} {estado:<15}")
                         else:
                             estado = "SIN CONEXIÓN"
@@ -762,31 +771,18 @@ def authorize_and_get_data():
                 # Procesar registros que no coincidieron
                 for key in no_coinciden:
                     try:
-                        # Verificar el formato de la clave y extraer los valores
                         if isinstance(key, tuple) and len(key) >= 3:
                             artista = key[0]
                             fecha_show = key[1]
                             ciudad = key[2]
-                            
-                            # Extraer venta_diaria y venta_total si están disponibles
                             venta_diaria = key[3] if len(key) > 3 else 0
                             venta_total = key[4] if len(key) > 4 else 0
-                            
-                            # Caso especial para Khea en Vigo
-                            if artista == 'Khea' and ciudad == 'Vigo':
-                                print(f"Procesando caso especial: Khea en Vigo")
-                            
-                            # Buscar los valores de monto_diario_ars y recaudacion_total en el sheet
                             monto_diario_ars = '0'
                             recaudacion_total = '0'
-                            
-                            # Buscar en todas las filas para encontrar este artista y fecha
                             for row in all_values[3:]:
                                 if (len(row) >= 10 and 
                                     process_artist_name(row[1].strip()) == artista and
                                     ciudad == row[2].strip()):
-                                    
-                                    # Procesar fecha show para comparar
                                     original_date = row[0].strip()
                                     if '/' in original_date:
                                         date_parts = original_date.split('/')
@@ -800,23 +796,25 @@ def authorize_and_get_data():
                                             row_date = '2025-01-01'
                                     else:
                                         row_date = '2025-01-01'
-                                    
                                     if row_date == fecha_show:
-                                        # Encontramos la fila, obtener valores
                                         if len(row) > 8:
                                             monto_diario_ars = formatear_valor_monetario(row[8])
                                         if len(row) > 11:
                                             recaudacion_total = formatear_valor_monetario(row[11])
                                         break
-                            
+                            # Buscar para ambos años
+                            try:
+                                year, mes, dia = fecha_show.split('-')
+                                alt_year = '2026' if year == '2025' else ('2025' if year == '2026' else year)
+                                fecha_show_alt = f"{alt_year}-{mes}-{dia}"
+                            except Exception:
+                                fecha_show_alt = fecha_show
                             existe = get_existing_show_details(conn, artista, fecha_show, "")
-                            if existe:
+                            existe_alt = get_existing_show_details(conn, artista, fecha_show_alt, "")
+                            if existe or existe_alt:
                                 registros_ok += 1
-                                # Imprimir en la tabla de resumen
                                 print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
                                       f"{venta_diaria:<15} {monto_diario_ars:<15} {venta_total:<15} {recaudacion_total:<15} {'   ':<5} {'OK':<15}")
-                                
-                                # Obtener detalles del registro anterior y añadir a registros_a_insertar
                                 detalles_previos = get_last_record_details(conn, artista, fecha_show, "")
                                 registros_a_insertar.append({
                                     'fecha_venta': fecha_venta,
@@ -836,13 +834,11 @@ def authorize_and_get_data():
                                     'recaudacion_total': recaudacion_total
                                 })
                             else:
-                                # Buscar en shows_ticketing
                                 detalles_show = get_show_details_from_shows_ticketing(conn, artista, fecha_show, "")
                                 if detalles_show:
                                     registros_ok += 1
                                     print(f"{artista:<25} {ciudad:<15} {fecha_show:<12} {fecha_venta:<12} "
                                           f"{venta_diaria:<15} {monto_diario_ars:<15} {venta_total:<15} {recaudacion_total:<15} {'   ':<5} {'OK':<15}")
-                                    
                                     registros_a_insertar.append({
                                         'fecha_venta': fecha_venta,
                                         'fecha_show': fecha_show,
