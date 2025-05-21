@@ -1,5 +1,4 @@
 import pygsheets
-import os
 from datetime import datetime, timedelta
 import unicodedata
 import psycopg2
