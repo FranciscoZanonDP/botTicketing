@@ -4,7 +4,6 @@ import re
 from datetime import datetime
 import psycopg2
 from psycopg2 import Error
-import sys  # Añadir importación de sys para poder usar sys.exit()
 import argparse
 import time  # Para los reintentos con espera
 import random  # Para backoff exponencial

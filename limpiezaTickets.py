@@ -1,6 +1,6 @@
 import pygsheets
 import psycopg2
-from datetime import datetime, timedelta
+from datetime import datetime
 from psycopg2 import Error
 
 def get_db_connection():

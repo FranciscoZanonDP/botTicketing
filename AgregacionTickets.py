@@ -1,6 +1,4 @@
 import pygsheets
-import os
-from datetime import datetime, timedelta
 import psycopg2
 from psycopg2 import Error
 
