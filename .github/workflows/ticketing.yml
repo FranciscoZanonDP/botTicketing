@@ -35,13 +35,13 @@ jobs:
       - name: Wait for 10 seconds
         run: sleep 10s
 
-      - name: Run recorrerHojas.py
+      - name: Run recorrerArg.py
         run: python recorrerArgentina.py
 
       - name: Wait for 10 seconds
         run: sleep 10s
 
-      - name: Run recorrerHojas.py
+      - name: Run recorrerEsp.py
         run: python recorrerEspana.py
 
       - name: Wait for 10 seconds
