@@ -43,3 +43,9 @@ jobs:
 
       - name: Run recorrerHojas.py
         run: python recorrerEspana.py
+
+      - name: Wait for 10 seconds
+        run: sleep 10s
+
+      - name: Run leer_sheet_simple.py
+        run: python leer_sheet_simple.py

@@ -100,7 +100,7 @@ def update_tickets(connection, artist, fecha_show, d8_valor, e8_valor, f8_valor)
 def send_email_report(actualizados):
     sender_email = "malbec@daleplay.la"
     receiver_email = "francisco.zanon@daleplay.la"
-    password = "gipz izjp uyci qlqv"
+    password = "uljz kjug vqvq tjgz"
 
     message = MIMEMultipart('alternative')
     message["From"] = sender_email
