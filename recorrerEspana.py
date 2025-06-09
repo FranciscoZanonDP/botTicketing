@@ -162,39 +162,27 @@ def formatear_fecha(fecha_str, es_fecha_show=False):
     
     # Si ya está en formato aaaa-mm-dd, extraer mes y día, y asignar año según el mes
     if re.match(r'^\d{4}-\d{2}-\d{2}$', fecha_str):
-        # Extraer mes y día
         partes = fecha_str.split('-')
         mes = int(partes[1])
-        
-        # Si es fecha del show (B2), siempre usar 2025
         if es_fecha_show:
-            return f"2025-{partes[1]}-{partes[2]}"
-        
-        # Para fechas de venta (columna B): junio a diciembre -> 2024, enero a mayo -> 2025
-        año = "2024" if 6 <= mes <= 12 else "2025"
+            año = "2026" if 1 <= mes <= 4 else "2025"
+            return f"{año}-{partes[1]}-{partes[2]}"
+        año = "2024" if 10 <= mes <= 12 else "2025"
         return f"{año}-{partes[1]}-{partes[2]}"
     
     # Caso especial: formato dd/mm (sin año)
     if re.match(r'^\d{1,2}/\d{1,2}$', fecha_str):
         try:
-            # Separar día y mes
             partes = fecha_str.split('/')
-            dia = partes[0].zfill(2)  # Asegurar que tenga 2 dígitos
-            mes = int(partes[1])  # Convertir a entero para comparar
-            
-            # Si es fecha del show (B2), siempre usar 2025
+            dia = partes[0].zfill(2)
+            mes = int(partes[1])
             if es_fecha_show:
-                año = 2025
+                año = 2026 if 1 <= mes <= 4 else 2025
             else:
-                # Para fechas de venta (columna B): junio a diciembre -> 2024, enero a mayo -> 2025
-                año = 2024 if 6 <= mes <= 12 else 2025
-            
-            mes_str = str(mes).zfill(2)  # Convertir de nuevo a string con 2 dígitos
-            
-            # Crear la fecha en formato aaaa-mm-dd
+                año = 2024 if 10 <= mes <= 12 else 2025
+            mes_str = str(mes).zfill(2)
             return f"{año}-{mes_str}-{dia}"
         except Exception:
-            # Si hay algún error, devolver el original
             return fecha_str
     
     # Intentar diferentes formatos comunes
@@ -216,7 +204,7 @@ def formatear_fecha(fecha_str, es_fecha_show=False):
                 return f"2025-{fecha.strftime('%m-%d')}"
             
             # Para fechas de venta (columna B): junio a diciembre -> 2024, enero a mayo -> 2025
-            año = 2024 if 6 <= mes <= 12 else 2025
+            año = 2024 if 10 <= mes <= 12 else 2025
             return f"{año}-{fecha.strftime('%m-%d')}"
         except ValueError:
             continue

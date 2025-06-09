@@ -526,7 +526,8 @@ def check_and_create_columns(connection):
 def authorize_and_get_data():
     # URLs de los sheets
     sheet_urls = {
-        "Argentina": "https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=1650683826#gid=1650683826",
+        "Argentina1": "https://docs.google.com/spreadsheets/d/18XbyZ8NdwGsm3eqoXqyTn7qWeRjEuNsLxIQcscZTy9Y/edit?gid=1650683826#gid=1650683826",
+        "Argentina2": "https://docs.google.com/spreadsheets/d/16nGyUJJtn1JxyDA6pI-OAX19rpUX1XPlwdU4gw4pVfk/edit?gid=1650683826#gid=1650683826",
         "España": "https://docs.google.com/spreadsheets/d/10nr7R_rtkUh7DX8uC_dQXkJJSszDd53P-gxnD3Mxi3s/edit?gid=1650683826#gid=1650683826"
     }
     
