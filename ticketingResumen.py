@@ -999,7 +999,24 @@ def authorize_and_get_data():
         
         # Cerrar la conexión a la base de datos
         if conn:
-            conn.close()
+            try:
+                # Ejecutar borrado de duplicados
+                print("Eliminando duplicados en la tabla tickets...")
+                cursor = conn.cursor()
+                cursor.execute('''
+                    DELETE FROM public.tickets 
+                    WHERE ctid NOT IN (
+                        SELECT MIN(ctid)
+                        FROM public.tickets 
+                        GROUP BY show, fecha_venta
+                    );
+                ''')
+                conn.commit()
+                cursor.close()
+                print("Duplicados eliminados correctamente.")
+                conn.close()
+            except Exception as e:
+                print(f"Error al eliminar duplicados o cerrar conexión: {e}")
     
     except Exception as e:
         print(f"\nError al procesar el sheet: {e}")
