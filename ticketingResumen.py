@@ -360,7 +360,21 @@ def get_shows_without_sales(connection, fecha_venta):
 def get_existing_show_details(connection, artista, fecha_show, funcion):
     try:
         cursor = connection.cursor()
-        # Primero intentamos con la función especificada
+        
+        # Si la función está vacía, buscar CUALQUIER registro con ese artista y fecha
+        if not funcion or funcion == '':
+            cursor.execute("""
+                SELECT artista, fecha_show, funcion
+                FROM tickets 
+                WHERE artista = %s 
+                AND fecha_show = %s 
+                LIMIT 1
+            """, (artista, fecha_show))
+            result = cursor.fetchone()
+            cursor.close()
+            return result is not None
+        
+        # Si hay una función específica, buscar con esa función exacta
         cursor.execute("""
             SELECT artista, fecha_show, funcion
             FROM tickets 
@@ -368,10 +382,10 @@ def get_existing_show_details(connection, artista, fecha_show, funcion):
             AND fecha_show = %s 
             AND COALESCE(funcion, '') = %s
             LIMIT 1
-        """, (artista, fecha_show, funcion if funcion else ''))
+        """, (artista, fecha_show, funcion))
         result = cursor.fetchone()
         
-        if result is None and funcion:  # Si no encontró y había una función especificada
+        if result is None:
             # Intentamos con función NULL
             cursor.execute("""
                 SELECT artista, fecha_show, funcion

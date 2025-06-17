@@ -4,33 +4,42 @@ import psycopg2
 from psycopg2 import Error
 import unicodedata
 from datetime import datetime, timedelta
+import time
 
 # URLs predefinidas extraídas de los otros archivos Python
 URLS_PREDEFINIDAS = {
     "Argentina": {
         "nombre": "Argentina",
-        "url": "https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=139082797#gid=139082797"
+        "urls": [
+            "https://docs.google.com/spreadsheets/d/18XbyZ8NdwGsm3eqoXqyTn7qWeRjEuNsLxIQcscZTy9Y/edit?gid=1650683826#gid=1650683826",
+            "https://docs.google.com/spreadsheets/d/16nGyUJJtn1JxyDA6pI-OAX19rpUX1XPlwdU4gw4pVfk/edit?gid=1650683826#gid=1650683826"
+        ]
     },
     "España": {
         "nombre": "España", 
-        "url": "https://docs.google.com/spreadsheets/d/10nr7R_rtkUh7DX8uC_dQXkJJSszDd53P-gxnD3Mxi3s/edit?gid=1650683826#gid=1650683826"
+        "urls": [
+            "https://docs.google.com/spreadsheets/d/10nr7R_rtkUh7DX8uC_dQXkJJSszDd53P-gxnD3Mxi3s/edit?gid=1650683826#gid=1650683826"
+        ]
     }
 }
 
-def get_db_connection():
-    """Establece una conexión a la base de datos"""
-    try:
-        connection = psycopg2.connect(
-            host="ep-plain-voice-a47r1b05-pooler.us-east-1.aws.neon.tech",
-            database="verceldb",
-            user="default",
-            password="Rx3Eq5iQwMpl",
-            sslmode="require"
-        )
-        return connection
-    except Error as e:
-        print(f"Error al conectar a PostgreSQL: {e}")
-        return None
+def get_db_connection_with_retry(max_retries=5):
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            connection = psycopg2.connect(
+                host="ep-plain-voice-a47r1b05-pooler.us-east-1.aws.neon.tech",
+                database="verceldb",
+                user="default",
+                password="Rx3Eq5iQwMpl",
+                sslmode="require"
+            )
+            return connection
+        except Exception as e:
+            print(f"Error al conectar a PostgreSQL (reintento {retry_count+1}/{max_retries}): {e}")
+            time.sleep(2 * (retry_count+1))
+            retry_count += 1
+    return None
 
 def process_artist_name(artist):
     """Procesa el nombre del artista aplicando reglas específicas de capitalización"""
@@ -727,9 +736,9 @@ def generar_insert_statements(faltantes_data):
     
     return insert_statements
 
-def ejecutar_insert_statements(insert_statements, connection):
+def ejecutar_insert_statements(insert_statements, connection, batch_size=25, max_retries=3):
     """
-    Ejecuta los INSERT statements en la base de datos y devuelve estadísticas
+    Ejecuta los INSERT statements en la base de datos en batches y con reconexión automática.
     """
     if not insert_statements:
         print("\n📋 No hay INSERT statements para ejecutar")
@@ -741,60 +750,87 @@ def ejecutar_insert_statements(insert_statements, connection):
         }
     
     print("\n" + "=" * 100)
-    print("💾 EJECUTANDO INSERT STATEMENTS EN LA BASE DE DATOS")
+    print("💾 EJECUTANDO INSERT STATEMENTS EN LA BASE DE DATOS (BATCH)")
     print("=" * 100)
     print(f"📊 Total de registros a insertar: {len(insert_statements)}")
     print("-" * 100)
     
-    cursor = connection.cursor()
     ejecutados_exitosos = 0
     errores = 0
     detalles_errores = []
+    total_batches = (len(insert_statements) + batch_size - 1) // batch_size
     
-    for idx, insert_sql in enumerate(insert_statements, 1):
-        try:
-            print(f"📝 Ejecutando registro {idx}/{len(insert_statements)}...", end=" ")
-            cursor.execute(insert_sql)
-            connection.commit()
-            print("✅ OK")
-            ejecutados_exitosos += 1
-            
-        except Exception as e:
-            print(f"❌ ERROR")
-            errores += 1
-            error_detalle = {
-                'registro': idx,
-                'error': str(e),
-                'query': insert_sql[:200] + "..." if len(insert_sql) > 200 else insert_sql
-            }
-            detalles_errores.append(error_detalle)
-            print(f"   Error: {str(e)}")
-            # Continuar con el siguiente registro en caso de error
-            continue
+    for batch_num in range(total_batches):
+        batch = insert_statements[batch_num*batch_size:(batch_num+1)*batch_size]
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                # Verificar conexión
+                if connection is None or connection.closed:
+                    print("Intentando reconectar a la base de datos...")
+                    connection = get_db_connection_with_retry()
+                    if connection is None:
+                        raise Exception("No se pudo reconectar a la base de datos")
+                cursor = connection.cursor()
+                print(f"📝 Ejecutando batch {batch_num+1}/{total_batches} ({len(batch)} registros)...", end=" ")
+                for idx, insert_sql in enumerate(batch):
+                    try:
+                        cursor.execute(insert_sql)
+                        ejecutados_exitosos += 1
+                    except Exception as e:
+                        errores += 1
+                        error_detalle = {
+                            'registro': batch_num*batch_size + idx + 1,
+                            'error': str(e),
+                            'query': insert_sql[:200] + "..." if len(insert_sql) > 200 else insert_sql
+                        }
+                        detalles_errores.append(error_detalle)
+                        print(f"\n   Error en registro {batch_num*batch_size + idx + 1}: {str(e)}")
+                        continue
+                connection.commit()
+                cursor.close()
+                print("✅ OK")
+                break  # Si el batch fue exitoso, salir del bucle de reintentos
+            except Exception as e:
+                print(f"❌ ERROR en batch {batch_num+1}: {e}")
+                try:
+                    if connection:
+                        connection.rollback()
+                except:
+                    pass
+                retry_count += 1
+                if retry_count >= max_retries:
+                    for idx, insert_sql in enumerate(batch):
+                        errores += 1
+                        error_detalle = {
+                            'registro': batch_num*batch_size + idx + 1,
+                            'error': f"Batch error: {str(e)}",
+                            'query': insert_sql[:200] + "..." if len(insert_sql) > 200 else insert_sql
+                        }
+                        detalles_errores.append(error_detalle)
+                    print(f"   Batch {batch_num+1} falló tras {max_retries} reintentos.")
+                else:
+                    print(f"   Reintentando batch {batch_num+1} ({retry_count}/{max_retries})...")
+                    connection = get_db_connection_with_retry()
     
-    cursor.close()
-    
-    # Estadísticas finales
     estadisticas = {
         'total_queries': len(insert_statements),
         'ejecutados_exitosos': ejecutados_exitosos,
         'errores': errores,
         'detalles_errores': detalles_errores
     }
-    
     print("\n" + "-" * 100)
     print(f"📊 ESTADÍSTICAS DE EJECUCIÓN:")
     print(f"   ✅ Registros insertados exitosamente: {ejecutados_exitosos}")
     print(f"   ❌ Errores: {errores}")
     print(f"   📈 Porcentaje de éxito: {(ejecutados_exitosos/len(insert_statements)*100):.1f}%")
-    
     if errores > 0:
         print(f"\n⚠️  DETALLES DE ERRORES:")
-        for error in detalles_errores:
+        for error in detalles_errores[:10]:
             print(f"   Registro {error['registro']}: {error['error']}")
-    
+        if errores > 10:
+            print(f"   ... y {errores-10} errores más ...")
     print("=" * 100)
-    
     return estadisticas
 
 def mostrar_resumen_final(estadisticas_argentina, estadisticas_espana, faltantes_arg, faltantes_esp):
@@ -863,6 +899,19 @@ def mostrar_resumen_final(estadisticas_argentina, estadisticas_espana, faltantes
     
     print("\n" + "🎯" * 50)
 
+# --- NUEVA FUNCIÓN: Buscar hoja en varios sheets (para Argentina) ---
+def buscar_hoja_en_varios_sheets(sheet_urls, nombre_hoja):
+    for url in sheet_urls:
+        try:
+            gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
+            sh = gc.open_by_url(url)
+            for worksheet in sh.worksheets():
+                if worksheet.title.strip() == nombre_hoja.strip():
+                    return worksheet, sh, url
+        except Exception as e:
+            continue
+    return None, None, None
+
 def obtener_datos_shows_faltantes(faltantes, sheet_url, nombre_sheet, datos_parseados_sheet):
     """
     Obtiene los datos específicos de cada show faltante y retorna la información estructurada
@@ -875,11 +924,16 @@ def obtener_datos_shows_faltantes(faltantes, sheet_url, nombre_sheet, datos_pars
     
     faltantes_data = []
     
+    # Si es Argentina, usar todas las URLs
+    argentina_urls = []
+    if nombre_sheet == "Argentina":
+        argentina_urls = URLS_PREDEFINIDAS["Argentina"]["urls"]
+    
     try:
-        # Conectar con Google Sheets
-        gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
-        sh = gc.open_by_url(sheet_url)
-        
+        # Conectar con Google Sheets (solo para España o si no es Argentina)
+        if nombre_sheet != "Argentina":
+            gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
+            sh = gc.open_by_url(sheet_url)
         print(f"🔗 Conectado al sheet: {nombre_sheet}")
         print(f"📋 Shows faltantes a analizar: {len(faltantes)}")
         
@@ -898,21 +952,26 @@ def obtener_datos_shows_faltantes(faltantes, sheet_url, nombre_sheet, datos_pars
                     break
             
             # Reconstruir el nombre de la hoja original (dd-mm-aaaa ARTISTA (CIUDAD))
-            # Convertir fecha de aaaa-mm-dd a dd-mm-aaaa
             partes_fecha = fecha.split('-')
             if len(partes_fecha) == 3:
                 año, mes, dia = partes_fecha
                 fecha_original = f"{dia}-{mes}-{año}"
             else:
                 fecha_original = fecha
-            
-            # Reconstruir nombre de hoja
             nombre_hoja_buscar = f"{fecha_original} {artista.upper()} ({ciudad})"
-            
             print(f"\n🔍 ({idx}/{len(faltantes)}) Analizando: {nombre_hoja_buscar}")
             
-            # Leer datos específicos de la hoja
-            headers, datos, info_adicional = leer_datos_hoja_especifica(sh, nombre_hoja_buscar)
+            # --- CAMBIO: Buscar la hoja en ambos sheets de Argentina si corresponde ---
+            if nombre_sheet == "Argentina":
+                worksheet, sh_found, url_found = buscar_hoja_en_varios_sheets(argentina_urls, nombre_hoja_buscar)
+                if worksheet is None:
+                    print(f"  ❌ No se encontró la hoja: {nombre_hoja_buscar}")
+                    continue
+                # Usar el worksheet y sh_found encontrados
+                headers, datos, info_adicional = leer_datos_hoja_especifica(sh_found, nombre_hoja_buscar)
+            else:
+                # España: buscar en el único sheet
+                headers, datos, info_adicional = leer_datos_hoja_especifica(sh, nombre_hoja_buscar)
             
             # Agregar la moneda a la información adicional
             info_adicional['moneda'] = moneda_show
@@ -925,8 +984,6 @@ def obtener_datos_shows_faltantes(faltantes, sheet_url, nombre_sheet, datos_pars
             
             if headers is not None:
                 mostrar_datos_hoja_faltante(nombre_hoja_buscar, headers, datos, info_adicional)
-                
-                # Guardar datos para generar INSERTs
                 faltantes_data.append({
                     'headers': headers,
                     'datos': datos,
@@ -935,12 +992,9 @@ def obtener_datos_shows_faltantes(faltantes, sheet_url, nombre_sheet, datos_pars
                 })
             else:
                 print(f"  ❌ No se pudieron obtener datos de: {nombre_hoja_buscar}")
-        
         print("\n" + "=" * 90)
         print(f"✅ Análisis de {nombre_sheet} completado")
-        
         return faltantes_data
-        
     except Exception as e:
         print(f"❌ Error al obtener datos de shows faltantes: {e}")
         return []
@@ -956,7 +1010,7 @@ def main():
     
     # Conectar a la base de datos
     print("\n🔗 Conectando a la base de datos...")
-    conn = get_db_connection()
+    conn = get_db_connection_with_retry()
     if not conn:
         print("❌ No se pudo conectar a la base de datos. Abortando proceso.")
         return
@@ -975,8 +1029,10 @@ def main():
             sheet_info = URLS_PREDEFINIDAS[sheet_key]
             print(f"\n🌍 Procesando: {sheet_info['nombre']}")
             
-            # Ejecutar la función de lectura y obtener datos parseados
-            datos_parseados = leer_primera_hoja_con_url(sheet_info['url'], sheet_info['nombre'])
+            # Si hay más de una URL (caso Argentina), combinar los datos de todas
+            datos_parseados = []
+            for url in sheet_info["urls"]:
+                datos_parseados += leer_primera_hoja_con_url(url, sheet_info["nombre"])
             datos_todos_sheets[sheet_key] = datos_parseados
             
             # Separador entre sheets
@@ -1014,13 +1070,15 @@ def main():
     
     # Obtener datos específicos de shows faltantes y ejecutar INSERTs
     if faltantes_arg:
-        faltantes_data_arg = obtener_datos_shows_faltantes(
-            faltantes_arg, 
-            URLS_PREDEFINIDAS["Argentina"]["url"], 
-            "Argentina",
-            datos_todos_sheets["Argentina"]
-        )
-        
+        # Para Argentina, buscar en todas las URLs
+        faltantes_data_arg = []
+        for url in URLS_PREDEFINIDAS["Argentina"]["urls"]:
+            faltantes_data_arg += obtener_datos_shows_faltantes(
+                faltantes_arg, 
+                url, 
+                "Argentina",
+                datos_todos_sheets["Argentina"]
+            )
         # Generar y ejecutar INSERT statements para Argentina
         if faltantes_data_arg:
             insert_statements_arg = generar_insert_statements(faltantes_data_arg)
@@ -1029,11 +1087,10 @@ def main():
     if faltantes_esp:
         faltantes_data_esp = obtener_datos_shows_faltantes(
             faltantes_esp, 
-            URLS_PREDEFINIDAS["España"]["url"], 
+            URLS_PREDEFINIDAS["España"]["urls"][0], 
             "España",
             datos_todos_sheets["España"]
         )
-        
         # Generar y ejecutar INSERT statements para España
         if faltantes_data_esp:
             insert_statements_esp = generar_insert_statements(faltantes_data_esp)
