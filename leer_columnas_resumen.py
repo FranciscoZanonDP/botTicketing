@@ -228,5 +228,26 @@ if __name__ == "__main__":
                 print(f"[ERROR] Error procesando {name}: {e}")
         # Modo 2
         modo_2_categoria(conn)
+        
+        # Eliminar duplicados al final
+        try:
+            print("\n[LOG] Ejecutando limpieza de duplicados en tickets...")
+            cursor = conn.cursor()
+            delete_sql = '''
+DELETE FROM tickets 
+WHERE ctid NOT IN (
+    SELECT MAX(ctid)
+    FROM tickets
+    GROUP BY show, fecha_venta
+);
+'''
+            cursor.execute(delete_sql)
+            deleted = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            print(f"[LOG] Limpieza de duplicados completada. Registros eliminados: {deleted}")
+        except Exception as e:
+            print(f"[ERROR] Error al eliminar duplicados: {e}")
+        
         conn.close()
         print("[LOG] Conexión a base de datos cerrada.") 
