@@ -214,29 +214,19 @@ if __name__ == "__main__":
     print("1. Modo 1: Actualizar divisa y ticketera")
     print("2. Modo 2: Actualizar categorías")
     
-    while True:
-        try:
-            modo = int(input("Seleccione el modo (1 o 2): "))
-            if modo in [1, 2]:
-                break
-            else:
-                print("Por favor, seleccione 1 o 2")
-        except ValueError:
-            print("Por favor, ingrese un número válido")
-    
+    # Ejecutar ambos modos automáticamente, primero 1 y luego 2
     conn = get_db_connection()
     if not conn:
         print("[ERROR] No se pudo conectar a la base de datos. Abortando.")
     else:
-        if modo == 1:
-            print("\n[LOG] === MODO 1: ACTUALIZAR DIVISA Y TICKETERA ===")
-            for name, url in sheet_urls.items():
-                try:
-                    print_match_and_update(url, name, conn)
-                except Exception as e:
-                    print(f"[ERROR] Error procesando {name}: {e}")
-        elif modo == 2:
-            modo_2_categoria(conn)
-        
+        # Modo 1
+        print("\n[LOG] === MODO 1: ACTUALIZAR DIVISA Y TICKETERA ===")
+        for name, url in sheet_urls.items():
+            try:
+                print_match_and_update(url, name, conn)
+            except Exception as e:
+                print(f"[ERROR] Error procesando {name}: {e}")
+        # Modo 2
+        modo_2_categoria(conn)
         conn.close()
         print("[LOG] Conexión a base de datos cerrada.") 

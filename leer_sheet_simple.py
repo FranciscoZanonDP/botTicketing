@@ -912,6 +912,15 @@ def buscar_hoja_en_varios_sheets(sheet_urls, nombre_hoja):
             continue
     return None, None, None
 
+def limpiar_nombre_hoja(nombre_hoja):
+    # Elimina 'N/A' al principio o al final y espacios extra
+    nombre = nombre_hoja.strip()
+    if nombre.startswith('N/A '):
+        nombre = nombre[4:]
+    if nombre.endswith(' (N/A)'):
+        nombre = nombre[:-6]
+    return nombre.strip()
+
 def obtener_datos_shows_faltantes(faltantes, sheet_url, nombre_sheet, datos_parseados_sheet):
     """
     Obtiene los datos específicos de cada show faltante y retorna la información estructurada
@@ -959,6 +968,8 @@ def obtener_datos_shows_faltantes(faltantes, sheet_url, nombre_sheet, datos_pars
             else:
                 fecha_original = fecha
             nombre_hoja_buscar = f"{fecha_original} {artista.upper()} ({ciudad})"
+            # Limpiar N/A si está presente
+            nombre_hoja_buscar = limpiar_nombre_hoja(nombre_hoja_buscar)
             print(f"\n🔍 ({idx}/{len(faltantes)}) Analizando: {nombre_hoja_buscar}")
             
             # --- CAMBIO: Buscar la hoja en ambos sheets de Argentina si corresponde ---
