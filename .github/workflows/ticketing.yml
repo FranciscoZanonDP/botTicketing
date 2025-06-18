@@ -50,6 +50,6 @@ jobs:
       - name: Run leer_sheet_simple.py
         run: python leer_sheet_simple.py
 
-        name: Run leer_columnas_resumen.py
+      - name: Run leer_columnas_resumen.py
         run: python leer_columnas_resumen.py
 
