@@ -231,6 +231,34 @@ if __name__ == "__main__":
         
         # Eliminar duplicados al final
         try:
+            # Primero, llenar campos show nulos
+            print("\n[LOG] Llenando campos show nulos...")
+            cursor = conn.cursor()
+            update_sql = '''
+UPDATE tickets t1
+SET show = (
+    SELECT MIN(show) 
+    FROM tickets t2 
+    WHERE t2.artista = t1.artista 
+      AND t2.fecha_show = t1.fecha_show 
+      AND t2.show IS NOT NULL
+)
+WHERE t1.show IS NULL
+  AND EXISTS (
+    SELECT 1 
+    FROM tickets t3 
+    WHERE t3.artista = t1.artista 
+      AND t3.fecha_show = t1.fecha_show 
+      AND t3.show IS NOT NULL
+  );
+'''
+            cursor.execute(update_sql)
+            updated = cursor.rowcount
+            conn.commit()
+            cursor.close()
+            print(f"[LOG] Campos show actualizados: {updated}")
+            
+            # Luego, eliminar duplicados
             print("\n[LOG] Ejecutando limpieza de duplicados en tickets...")
             cursor = conn.cursor()
             delete_sql = '''
@@ -247,7 +275,7 @@ WHERE ctid NOT IN (
             cursor.close()
             print(f"[LOG] Limpieza de duplicados completada. Registros eliminados: {deleted}")
         except Exception as e:
-            print(f"[ERROR] Error al eliminar duplicados: {e}")
+            print(f"[ERROR] Error al ejecutar limpieza: {e}")
         
         conn.close()
         print("[LOG] Conexión a base de datos cerrada.") 
