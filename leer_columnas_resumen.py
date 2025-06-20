@@ -93,18 +93,65 @@ def update_categoria(conn, artista, fecha_show, categoria):
 
 def get_shows_from_sheet(sheet_url, sheet_name):
     print(f"\n[LOG] Obteniendo shows del sheet: {sheet_name}")
-    gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
-    sh = gc.open_by_url(sheet_url)
-    shows = []
-    for idx, wks in enumerate(sh.worksheets()[2:], start=3):
-        print(f"[LOG] Procesando hoja secundaria {idx}: {wks.title}")
-        artista = process_artist_name(wks.get_value('B1').strip())
-        b2_raw = wks.get_value('B2', value_render='UNFORMATTED_VALUE')
-        fecha = serial_to_date(b2_raw) if b2_raw not in (None, '') else ''
-        print(f"[LOG] Show encontrado: artista='{artista}', fecha='{fecha}'")
-        shows.append({'artista': artista, 'fecha': fecha, 'hoja': wks.title})
-    print(f"[LOG] Total shows encontrados en {sheet_name}: {len(shows)}")
-    return shows
+    try:
+        gc = pygsheets.authorize(client_secret='client_secret.json', credentials_directory='./')
+        sh = gc.open_by_url(sheet_url)
+        shows = []
+        
+        # Obtener todas las hojas excepto las primeras 2 (Resumen, etc.)
+        worksheets = sh.worksheets()[2:]
+        print(f"[LOG] Total hojas a procesar en {sheet_name}: {len(worksheets)}")
+        
+        for idx, wks in enumerate(worksheets, start=3):
+            try:
+                print(f"[LOG] Procesando hoja secundaria {idx}: {wks.title}")
+                
+                # Intentar obtener B1 (artista) con reintentos
+                artista = None
+                for intento in range(3):
+                    try:
+                        artista_raw = wks.get_value('B1')
+                        if artista_raw:
+                            artista = process_artist_name(artista_raw.strip())
+                            break
+                    except Exception as e:
+                        print(f"[WARN] Intento {intento+1}/3 fallido para B1 en {wks.title}: {e}")
+                        if intento == 2:
+                            print(f"[ERROR] No se pudo obtener B1 de {wks.title}, saltando hoja")
+                            continue
+                
+                if not artista:
+                    print(f"[WARN] Artista vacío en hoja {wks.title}, saltando")
+                    continue
+                
+                # Intentar obtener B2 (fecha) con reintentos
+                fecha = ''
+                for intento in range(3):
+                    try:
+                        b2_raw = wks.get_value('B2', value_render='UNFORMATTED_VALUE')
+                        if b2_raw not in (None, ''):
+                            fecha = serial_to_date(b2_raw)
+                        break
+                    except Exception as e:
+                        print(f"[WARN] Intento {intento+1}/3 fallido para B2 en {wks.title}: {e}")
+                        if intento == 2:
+                            print(f"[ERROR] No se pudo obtener B2 de {wks.title}, usando fecha vacía")
+                            fecha = ''
+                
+                print(f"[LOG] Show encontrado: artista='{artista}', fecha='{fecha}'")
+                shows.append({'artista': artista, 'fecha': fecha, 'hoja': wks.title})
+                
+            except Exception as e:
+                print(f"[ERROR] Error procesando hoja {wks.title}: {e}")
+                print(f"[LOG] Continuando con la siguiente hoja...")
+                continue
+        
+        print(f"[LOG] Total shows encontrados en {sheet_name}: {len(shows)}")
+        return shows
+        
+    except Exception as e:
+        print(f"[ERROR] Error general al procesar sheet {sheet_name}: {e}")
+        return []
 
 def print_match_and_update(sheet_url, sheet_name, conn):
     print(f"\n[LOG] Procesando sheet: {sheet_name}")
@@ -250,6 +297,57 @@ WHERE t1.show IS NULL
     WHERE t3.artista = t1.artista 
       AND t3.fecha_show = t1.fecha_show 
       AND t3.show IS NOT NULL
+  );
+
+UPDATE tickets t1
+SET capacidad = (
+    SELECT MIN(capacidad) 
+    FROM tickets t2 
+    WHERE t2.artista = t1.artista 
+      AND t2.fecha_show = t1.fecha_show 
+      AND t2.capacidad IS NOT NULL
+)
+WHERE t1.capacidad IS NULL
+  AND EXISTS (
+    SELECT 1 
+    FROM tickets t3 
+    WHERE t3.artista = t1.artista 
+      AND t3.fecha_show = t1.fecha_show 
+      AND t3.capacidad IS NOT NULL
+  );
+
+UPDATE tickets t1
+SET holdeo = (
+    SELECT MIN(holdeo) 
+    FROM tickets t2 
+    WHERE t2.artista = t1.artista 
+      AND t2.fecha_show = t1.fecha_show 
+      AND t2.holdeo IS NOT NULL
+)
+WHERE t1.holdeo IS NULL
+  AND EXISTS (
+    SELECT 1 
+    FROM tickets t3 
+    WHERE t3.artista = t1.artista 
+      AND t3.fecha_show = t1.fecha_show 
+      AND t3.holdeo IS NOT NULL
+  );
+
+UPDATE tickets t1
+SET venue = (
+    SELECT MIN(venue) 
+    FROM tickets t2 
+    WHERE t2.artista = t1.artista 
+      AND t2.fecha_show = t1.fecha_show 
+      AND t2.venue IS NOT NULL
+)
+WHERE t1.venue IS NULL
+  AND EXISTS (
+    SELECT 1 
+    FROM tickets t3 
+    WHERE t3.artista = t1.artista 
+      AND t3.fecha_show = t1.fecha_show 
+      AND t3.venue IS NOT NULL
   );
 '''
             cursor.execute(update_sql)

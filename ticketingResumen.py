@@ -957,17 +957,17 @@ def authorize_and_get_data():
                                 'fecha_venta': registro['fecha_venta']
                             })
                             
-                            # Si los datos vinieron de shows_ticketing, eliminar el registro
-                            detalles_show = get_show_details_from_shows_ticketing(conn, 
-                                                                                registro['artista'], 
-                                                                                registro['fecha_show'], 
-                                                                                registro['funcion'])
-                            if detalles_show:
-                                if delete_from_shows_ticketing(conn, 
-                                                             registro['artista'], 
-                                                             registro['fecha_show'], 
-                                                             registro['funcion']):
-                                    print(f"Eliminado de shows_ticketing: {registro['artista']} - {registro['fecha_show']}")
+                            # COMENTADO: Si los datos vinieron de shows_ticketing, eliminar el registro
+                            # detalles_show = get_show_details_from_shows_ticketing(conn, 
+                            #                                                     registro['artista'], 
+                            #                                                     registro['fecha_show'], 
+                            #                                                     registro['funcion'])
+                            # if detalles_show:
+                            #     if delete_from_shows_ticketing(conn, 
+                            #                                  registro['artista'], 
+                            #                                  registro['fecha_show'], 
+                            #                                  registro['funcion']):
+                            #         print(f"Eliminado de shows_ticketing: {registro['artista']} - {registro['fecha_show']}")
                         else:
                             print(f"❌ Error al insertar: {registro['artista']} - {registro['fecha_show']}")
                             registros_no_insertados.append({
@@ -1014,23 +1014,23 @@ def authorize_and_get_data():
         # Cerrar la conexión a la base de datos
         if conn:
             try:
-                # Ejecutar borrado de duplicados
-                print("Eliminando duplicados en la tabla tickets...")
-                cursor = conn.cursor()
-                cursor.execute('''
-                    DELETE FROM public.tickets 
-                    WHERE ctid NOT IN (
-                        SELECT MIN(ctid)
-                        FROM public.tickets 
-                        GROUP BY show, fecha_venta
-                    );
-                ''')
-                conn.commit()
-                cursor.close()
-                print("Duplicados eliminados correctamente.")
+                # COMENTADO: Ejecutar borrado de duplicados
+                # print("Eliminando duplicados en la tabla tickets...")
+                # cursor = conn.cursor()
+                # cursor.execute('''
+                #     DELETE FROM public.tickets 
+                #     WHERE ctid NOT IN (
+                #         SELECT MIN(ctid)
+                #         FROM public.tickets 
+                #         GROUP BY show, fecha_venta
+                #     );
+                # ''')
+                # conn.commit()
+                # cursor.close()
+                # print("Duplicados eliminados correctamente.")
                 conn.close()
             except Exception as e:
-                print(f"Error al eliminar duplicados o cerrar conexión: {e}")
+                print(f"Error al cerrar conexión: {e}")
     
     except Exception as e:
         print(f"\nError al procesar el sheet: {e}")
