@@ -377,3 +377,38 @@ WHERE ctid NOT IN (
         
         conn.close()
         print("[LOG] Conexión a base de datos cerrada.") 
+
+        # Ejecutar UPDATE especial de categoria
+        try:
+            conn = get_db_connection()
+            if conn:
+                print("\n[LOG] Ejecutando UPDATE especial de categoria...")
+                cursor = conn.cursor()
+                update_categoria_sql = '''
+UPDATE tickets 
+SET categoria = CASE 
+    WHEN categoria = 2 THEN
+        CASE 
+            WHEN artista IN ('Duki', 'Nicki Nicole', 'Bizarrap', 'Lali', 'Rels B', 'Airbag') THEN 2
+            ELSE 1
+        END
+    WHEN categoria = 4 THEN
+        CASE 
+            WHEN artista IN ('Duki', 'Nicki Nicole', 'Bizarrap', 'Lali', 'Rels B', 'Airbag') THEN 8
+            ELSE 7
+        END
+    ELSE categoria  
+END
+WHERE fecha_show > '2025-06-25'
+  AND categoria IN (2, 4)
+'''
+                cursor.execute(update_categoria_sql)
+                updated = cursor.rowcount
+                conn.commit()
+                cursor.close()
+                print(f"[LOG] UPDATE especial de categoria completado. Registros actualizados: {updated}")
+                conn.close()
+            else:
+                print("[ERROR] No se pudo reconectar para el UPDATE especial de categoria.")
+        except Exception as e:
+            print(f"[ERROR] Error al ejecutar UPDATE especial de categoria: {e}") 

@@ -21,7 +21,8 @@ def get_db_connection():
 def get_sheet_data():
     # URLs de los sheets
     sheet_urls = {
-        "Argentina": "https://docs.google.com/spreadsheets/d/18PvV89ic4-jV-SdsM2qsSI37AQG_ifCCXAgVBWJP_dY/edit?gid=139082797#gid=139082797",
+        "Argentina 1": "https://docs.google.com/spreadsheets/d/18XbyZ8NdwGsm3eqoXqyTn7qWeRjEuNsLxIQcscZTy9Y/edit?gid=1650683826#gid=1650683826",
+        "Argentina 2": "https://docs.google.com/spreadsheets/d/16nGyUJJtn1JxyDA6pI-OAX19rpUX1XPlwdU4gw4pVfk/edit?gid=1650683826#gid=1650683826",
         "España": "https://docs.google.com/spreadsheets/d/10nr7R_rtkUh7DX8uC_dQXkJJSszDd53P-gxnD3Mxi3s/edit?gid=1650683826#gid=1650683826"
     }
     
@@ -182,7 +183,7 @@ def get_sheet_data():
                                 dia = int(dia)
                                 
                                 # Determinar el año basado en el mes
-                                if 1 <= mes <= 4:
+                                if 1 <= mes <= 6:
                                     anio = "2025"
                                 elif 7 <= mes <= 12:
                                     anio = "2024"
